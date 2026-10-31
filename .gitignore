@@ -1,0 +1,21 @@
+# Сборка
+/bin/
+/dist/
+*.test
+*.out
+
+# Интерфейс: собирается в internal/web/dist, в git только .gitkeep
+web/node_modules/
+internal/web/dist/*
+!internal/web/dist/.gitkeep
+
+# Локальные данные
+*.db
+*.db-shm
+*.db-wal
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp

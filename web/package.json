@@ -1,0 +1,23 @@
+{
+  "name": "eva-manager-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node -e \"require('fs').writeFileSync('../internal/web/dist/.gitkeep', '')\"",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "typescript": "~5.9.3",
+    "vite": "8.3.5"
+  }
+}
