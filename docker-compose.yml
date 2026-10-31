@@ -1,0 +1,38 @@
+# Eva Manager в Docker.
+#
+#   docker compose up -d                       панель с SQLite
+#   EVA_DB_PASSWORD=… docker compose --profile postgres up -d
+#                                              панель с PostgreSQL (и EVA_DATABASE_URL ниже)
+#
+# Сеть хоста: порты инбаундов Xray задаются в панели и меняются без
+# пересборки контейнера. Панель слушает только 127.0.0.1:8080 на хосте;
+# до входа по паролю (этап 3) открывайте её через SSH-туннель:
+#   ssh -L 8080:127.0.0.1:8080 root@сервер
+services:
+  eva-manager:
+    build: .
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      EVA_LISTEN: 127.0.0.1:8080
+      # С профилем postgres раскомментируйте:
+      # EVA_DATABASE_URL: postgres://eva:${EVA_DB_PASSWORD}@127.0.0.1:5432/eva?sslmode=disable
+    volumes:
+      - eva-data:/var/lib/eva-manager
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: [postgres]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eva
+      POSTGRES_DB: eva
+      POSTGRES_PASSWORD: ${EVA_DB_PASSWORD:-}
+    ports:
+      - 127.0.0.1:5432:5432
+    volumes:
+      - eva-pg:/var/lib/postgresql/data
+
+volumes:
+  eva-data:
+  eva-pg:

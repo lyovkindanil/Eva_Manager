@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (SQLite, PostgreSQL, Xray)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: eva
+          POSTGRES_PASSWORD: eva
+          POSTGRES_DB: eva_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U eva"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: go vet
+        run: go vet ./...
+      # Та же версия и та же проверка SHA-256, что в Docker-образе.
+      - name: Xray
+        run: scripts/fetch-xray.sh "$(cat XRAY_VERSION)" "$RUNNER_TEMP/xray"
+      - name: go test
+        env:
+          EVA_TEST_POSTGRES_URL: postgres://eva:eva@127.0.0.1:5432/eva_test?sslmode=disable
+          EVA_TEST_XRAY_BIN: ${{ runner.temp }}/xray/xray
+        run: go test -race -count=1 -v ./... 2>&1 | tee test.log; exit "${PIPESTATUS[0]}"
+      # Тесты с PostgreSQL и Xray не должны тихо пропускаться.
+      - name: Ничего не пропущено
+        run: |
+          if grep -E -- '--- SKIP' test.log; then
+            echo "::error::есть пропущенные тесты"
+            exit 1
+          fi
+
+  web:
+    name: Интерфейс
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+
+  docker:
+    name: Docker-образ
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Сборка
+        run: docker build --build-arg VERSION=ci-${GITHUB_SHA::7} -t eva-manager:ci .
+      # Образ запускается, Xray поднимается от непривилегированного
+      # пользователя и отвечает по API.
+      - name: Запуск
+        run: |
+          docker run -d --name eva -p 127.0.0.1:8080:8080 eva-manager:ci
+          for i in $(seq 1 30); do
+            if s=$(curl -fsS http://127.0.0.1:8080/api/status) && echo "$s" | grep -q '"api":true'; then
+              echo "$s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "$s"
+          docker logs eva
+          exit 1

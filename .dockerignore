@@ -1,0 +1,6 @@
+.git
+bin
+web/node_modules
+internal/web/dist/assets
+internal/web/dist/index.html
+*.db

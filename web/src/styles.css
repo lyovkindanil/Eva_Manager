@@ -1,0 +1,243 @@
+/* Цвета и размеры — как в клиенте VPN4Eva (gui/src/styles.css). */
+:root {
+  --bg: #f4f6f5;
+  --surface: #ffffff;
+  --surface-2: #eef1ef;
+  --border: #dde3e0;
+  --text: #14201c;
+  --muted: #5f6b66;
+  --accent: #14a874;
+  --accent-soft: #d8f5ea;
+  --focus: #9aa5a0;
+  --warn-bg: #fff6e0;
+  --warn-border: #f0d48a;
+  --error: #c4362b;
+  --error-bg: #fdecea;
+  --idle: #9aa5a0;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgb(20 32 28 / 6%), 0 4px 16px rgb(20 32 28 / 5%);
+  --glow: none;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #16181d;
+  --surface: #1c1f25;
+  --surface-2: #23262d;
+  --border: #2d3139;
+  --text: #e8eaed;
+  --muted: #8b929a;
+  --accent: #2bd49a;
+  --accent-soft: rgb(43 212 154 / 14%);
+  --focus: #5d646e;
+  --warn-bg: #2a2412;
+  --warn-border: #5a4a1c;
+  --error: #ff7b6e;
+  --error-bg: #3a1a17;
+  --idle: #4a5059;
+  --shadow: none;
+  --glow: radial-gradient(120% 60% at 50% -10%, rgb(43 212 154 / 7%), transparent 60%);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--glow), var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 16px;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 28px 0 10px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wordmark {
+  height: 22px;
+  color: var(--text);
+}
+
+.brand-name {
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.content {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.card.warn {
+  border-color: var(--warn-border);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.problem {
+  color: var(--error);
+  overflow-wrap: anywhere;
+}
+
+.pill {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.pill.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.list {
+  gap: 0;
+  padding: 4px 14px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.row + .row {
+  border-top: 1px solid var(--border);
+}
+
+.grow {
+  flex: 1;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+
+.dot.on {
+  background: var(--accent);
+}
+
+.banner {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+}
+
+.banner.error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.ghost {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+
+.ghost:hover {
+  border-color: var(--focus);
+}
+
+.section-toggle {
+  margin-top: 28px;
+  border: none;
+  padding: 0;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.logs {
+  margin: 10px 0 0;
+  padding: 12px;
+  max-height: 360px;
+  overflow: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
