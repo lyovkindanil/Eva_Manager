@@ -6,7 +6,11 @@ import (
 	"strings"
 	"time"
 
+	handlercmd "github.com/xtls/xray-core/app/proxyman/command"
 	statscmd "github.com/xtls/xray-core/app/stats/command"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/proxy/vless"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -14,8 +18,9 @@ import (
 // API — клиент gRPC API Xray. Соединение без TLS: API слушает только
 // 127.0.0.1 (это проверяет config).
 type API struct {
-	conn  *grpc.ClientConn
-	stats statscmd.StatsServiceClient
+	conn    *grpc.ClientConn
+	stats   statscmd.StatsServiceClient
+	handler handlercmd.HandlerServiceClient
 }
 
 // Dial готовит клиент; само соединение устанавливается при первом вызове.
@@ -24,7 +29,7 @@ func Dial(addr string) (*API, error) {
 	if err != nil {
 		return nil, fmt.Errorf("api xray %s: %w", addr, err)
 	}
-	return &API{conn: conn, stats: statscmd.NewStatsServiceClient(conn)}, nil
+	return &API{conn: conn, stats: statscmd.NewStatsServiceClient(conn), handler: handlercmd.NewHandlerServiceClient(conn)}, nil
 }
 
 // Close закрывает соединение.
@@ -91,4 +96,59 @@ func parseUserStat(name string) (email, dir string, ok bool) {
 		return "", "", false
 	}
 	return parts[1], parts[3], true
+}
+
+// FlowVision — единственный flow этапа 1.
+const FlowVision = "xtls-rprx-vision"
+
+// AddVLESSUser добавляет пользователя VLESS (flow Vision) в инбаунд с
+// тегом tag без перезапуска ядра. email — id пользователя панели: по нему
+// StatsService отдаёт его трафик. Уровень 0 — тот, для которого в policy
+// включена статистика по пользователям.
+func (a *API) AddVLESSUser(ctx context.Context, tag, email, uuid string) error {
+	op := serial.ToTypedMessage(&handlercmd.AddUserOperation{User: &protocol.User{
+		Level:   0,
+		Email:   email,
+		Account: serial.ToTypedMessage(&vless.Account{Id: uuid, Flow: FlowVision}),
+	}})
+	_, err := a.handler.AlterInbound(ctx, &handlercmd.AlterInboundRequest{Tag: tag, Operation: op})
+	if err != nil {
+		return fmt.Errorf("api xray: добавить %s в %s: %w", email, tag, err)
+	}
+	return nil
+}
+
+// RemoveUser убирает пользователя из инбаунда: активные соединения
+// обрываются, новые не принимаются.
+func (a *API) RemoveUser(ctx context.Context, tag, email string) error {
+	op := serial.ToTypedMessage(&handlercmd.RemoveUserOperation{Email: email})
+	_, err := a.handler.AlterInbound(ctx, &handlercmd.AlterInboundRequest{Tag: tag, Operation: op})
+	if err != nil {
+		return fmt.Errorf("api xray: удалить %s из %s: %w", email, tag, err)
+	}
+	return nil
+}
+
+// InboundUsers — email'ы пользователей, которые сейчас в инбаунде.
+func (a *API) InboundUsers(ctx context.Context, tag string) ([]string, error) {
+	r, err := a.handler.GetInboundUsers(ctx, &handlercmd.GetInboundUserRequest{Tag: tag})
+	if err != nil {
+		return nil, fmt.Errorf("api xray: пользователи %s: %w", tag, err)
+	}
+	out := make([]string, 0, len(r.Users))
+	for _, u := range r.Users {
+		out = append(out, u.Email)
+	}
+	return out, nil
+}
+
+// IsUserExists — Xray ответил «пользователь уже есть»: при сверке
+// состояния это не ошибка, нужный пользователь уже на месте.
+func IsUserExists(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "already exists")
+}
+
+// IsUserNotFound — Xray ответил «пользователя нет»: удалять нечего.
+func IsUserNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "not found")
 }

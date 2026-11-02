@@ -16,7 +16,7 @@ func (in Inbound) ConfigFragment() (map[string]any, error) {
 	}
 	r := in.Reality
 	return map[string]any{
-		"tag":      "in-" + in.ID,
+		"tag":      in.Tag(),
 		"listen":   "0.0.0.0",
 		"port":     in.Port,
 		"protocol": "vless",

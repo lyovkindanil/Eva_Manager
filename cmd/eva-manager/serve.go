@@ -13,6 +13,8 @@ import (
 	"github.com/lyovkindanil/Eva_Manager/internal/buildinfo"
 	"github.com/lyovkindanil/Eva_Manager/internal/config"
 	"github.com/lyovkindanil/Eva_Manager/internal/db"
+	"github.com/lyovkindanil/Eva_Manager/internal/inbound"
+	"github.com/lyovkindanil/Eva_Manager/internal/panel"
 	"github.com/lyovkindanil/Eva_Manager/internal/server"
 	"github.com/lyovkindanil/Eva_Manager/internal/store"
 	"github.com/lyovkindanil/Eva_Manager/internal/xray"
@@ -25,7 +27,8 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 	defer d.Close()
 	st := store.New(d)
-	if _, err := st.EnsureLocalNode(ctx); err != nil {
+	node, err := st.EnsureLocalNode(ctx)
+	if err != nil {
 		return err
 	}
 	log.Info("eva-manager", "version", buildinfo.Version, "db", d.Dialect)
@@ -45,7 +48,11 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			return err
 		}
 		defer x.API.Close()
-		base, err := xray.BaseConfig(cfg.XrayAPI)
+		inbs, err := st.Inbounds(ctx, node.ID)
+		if err != nil {
+			return err
+		}
+		base, err := inbound.BuildConfig(cfg.XrayAPI, inbs)
 		if err != nil {
 			return err
 		}
@@ -53,6 +60,15 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		core.wg.Add(1)
 		go core.run(ctx, base)
 		log.Info("xray", "version", v, "bin", bin)
+
+		// Сборщик: сверяет пользователей с ядром, забирает трафик,
+		// применяет лимиты и сроки.
+		pn := &panel.Panel{Store: st, API: x.API, NodeID: node.ID, Log: log}
+		core.wg.Add(1)
+		go func() {
+			defer core.wg.Done()
+			pn.Run(ctx)
+		}()
 	}
 
 	srv := &http.Server{

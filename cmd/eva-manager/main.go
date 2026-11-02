@@ -20,7 +20,7 @@ import (
 	"github.com/lyovkindanil/Eva_Manager/internal/buildinfo"
 	"github.com/lyovkindanil/Eva_Manager/internal/config"
 	"github.com/lyovkindanil/Eva_Manager/internal/db"
-	"github.com/lyovkindanil/Eva_Manager/internal/xray"
+	"github.com/lyovkindanil/Eva_Manager/internal/inbound"
 )
 
 func main() {
@@ -54,6 +54,10 @@ func run(ctx context.Context, cmd string, log *slog.Logger) error {
 	switch cmd {
 	case "serve":
 		return serve(ctx, cfg, log)
+	case "inbound":
+		return inboundCmd(ctx, cfg, os.Args[2:])
+	case "user":
+		return userCmd(ctx, cfg, os.Args[2:])
 	case "migrate":
 		d, err := db.Open(ctx, cfg.DatabaseURL)
 		if err != nil {
@@ -67,7 +71,16 @@ func run(ctx context.Context, cmd string, log *slog.Logger) error {
 		fmt.Printf("база %s, схема версии %d\n", d.Dialect, v)
 		return nil
 	case "xray-config":
-		b, err := xray.BaseConfig(cfg.XrayAPI)
+		st, node, closeDB, err := openStore(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		defer closeDB()
+		inbs, err := st.Inbounds(ctx, node.ID)
+		if err != nil {
+			return err
+		}
+		b, err := inbound.BuildConfig(cfg.XrayAPI, inbs)
 		if err != nil {
 			return err
 		}
@@ -77,7 +90,14 @@ func run(ctx context.Context, cmd string, log *slog.Logger) error {
 	return errors.New("неизвестная команда " + cmd + "\n" + usage)
 }
 
-const usage = `Использование: eva-manager [serve | migrate | xray-config | version]
+const usage = `Использование: eva-manager <команда>
+
+  serve          запустить панель (по умолчанию)
+  inbound        инбаунды: add | list | del
+  user           пользователи: add | list | show | del | enable | disable | reset-traffic
+  migrate        применить миграции базы и выйти
+  xray-config    напечатать конфиг Xray (из базы)
+  version        версия панели
 
 Переменные окружения:
   EVA_DATA_DIR      каталог данных (по умолчанию /var/lib/eva-manager)

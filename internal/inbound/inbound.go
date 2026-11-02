@@ -54,6 +54,9 @@ type Inbound struct {
 	Reality  VLESSReality
 }
 
+// Tag — тег инбаунда в конфиге Xray и в вызовах gRPC API.
+func (in Inbound) Tag() string { return "in-" + in.ID }
+
 // VLESSReality — VLESS на tcp с маскировкой Reality и необязательным
 // постквантовым VLESS Encryption (mlkem768x25519plus из Xray-core).
 type VLESSReality struct {
