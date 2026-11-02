@@ -87,6 +87,27 @@ func (s *Store) DeleteInbound(ctx context.Context, id string) error {
 	return err
 }
 
+// UserInbounds — включённые инбаунды, к которым у пользователя есть
+// доступ: из них собираются ссылки и подписка.
+func (s *Store) UserInbounds(ctx context.Context, userID string) ([]inbound.Inbound, error) {
+	rows, err := s.db.Query(ctx, `SELECT i.id, i.node_id, i.name, i.protocol, i.port, i.settings, i.link_host, i.enabled
+		FROM inbounds i JOIN user_inbounds ui ON ui.inbound_id = i.id
+		WHERE ui.user_id = ? AND i.enabled ORDER BY i.created_at, i.id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []inbound.Inbound{}
+	for rows.Next() {
+		in, err := scanInbound(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *in)
+	}
+	return out, rows.Err()
+}
+
 // GrantInboundUsers открывает доступ к инбаунду пользователям (без дублей).
 func (s *Store) GrantInboundUsers(ctx context.Context, inboundID string, userIDs ...string) error {
 	return s.db.InTx(ctx, func(tx *db.Tx) error {

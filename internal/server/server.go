@@ -59,6 +59,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/xray/logs", s.xrayLogs)
 	mux.HandleFunc("POST /api/xray/apply", s.xrayApply)
+	mux.HandleFunc("GET /sub/{token}", s.subscription)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "нет такого метода API")
 	})

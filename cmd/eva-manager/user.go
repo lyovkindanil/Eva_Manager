@@ -116,24 +116,18 @@ func userByNameFlag(ctx context.Context, st *store.Store, args []string) (*store
 // printUserAccess печатает ссылки по всем включённым инбаундам с доступом
 // и адрес подписки.
 func printUserAccess(ctx context.Context, st *store.Store, cfg *config.Config, u *store.User) error {
-	ids, err := st.UserInboundIDs(ctx, u.ID)
+	inbounds, err := st.UserInbounds(ctx, u.ID)
 	if err != nil {
 		return err
 	}
-	printed := false
-	for _, id := range ids {
-		in, err := st.InboundByID(ctx, id)
-		if err != nil || !in.Enabled {
-			continue
-		}
+	for _, in := range inbounds {
 		link, err := in.Link(u.UUID, u.Name+" · "+in.Name)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("  %s\n", link)
-		printed = true
 	}
-	if !printed {
+	if len(inbounds) == 0 {
 		fmt.Println("  (включённых инбаундов нет — добавьте: eva-manager inbound add ...)")
 	}
 	fmt.Printf("Подписка: http://%s/sub/%s\n", strings.TrimPrefix(cfg.Listen, "http://"), u.SubToken)
