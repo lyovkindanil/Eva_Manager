@@ -16,6 +16,10 @@ import (
 // ErrNotInstalled — исполняемый файл Xray не найден.
 var ErrNotInstalled = errors.New("xray не найден")
 
+// EnvXrayBin — переменная окружения с путём к настоящему Xray для
+// интеграционных тестов (так делает CI); без неё они пропускаются.
+const EnvXrayBin = "EVA_TEST_XRAY_BIN"
+
 // FindBin возвращает путь к Xray: bin, если задан, иначе xray из PATH.
 func FindBin(bin string) (string, error) {
 	if bin == "" {
