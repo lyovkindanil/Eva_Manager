@@ -29,11 +29,18 @@ type Xray struct {
 	API     *xray.API
 }
 
+// Panel — что серверу нужно от панели: горячее применение конфига.
+type Panel interface {
+	ApplyConfig(ctx context.Context) error
+}
+
 // Server — обработчики HTTP.
 type Server struct {
 	DB    *db.DB
 	Store *store.Store
 	Xray  Xray
+	// Panel — применение конфига к ядру; nil — ядро не управляется панелью.
+	Panel Panel
 	// Web — файлы интерфейса; по умолчанию встроенные.
 	Web fs.FS
 	Log *slog.Logger
@@ -51,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/status", s.status)
 	mux.HandleFunc("GET /api/xray/logs", s.xrayLogs)
+	mux.HandleFunc("POST /api/xray/apply", s.xrayApply)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "нет такого метода API")
 	})
@@ -137,6 +145,26 @@ func (s *Server) xrayLogs(w http.ResponseWriter, r *http.Request) {
 		lines = s.Xray.Process.Logs()
 	}
 	writeJSON(w, http.StatusOK, map[string][]string{"lines": lines})
+}
+
+// xrayApply собирает конфиг из базы и применяет к работающему ядру:
+// проверка `xray run -test` плюс откат при падении делают неверную
+// настройку инбаунда безопасной — работающее ядро не роняется. Ждать
+// приходится дольше обычного запроса: тест конфига и наблюдение за
+// перезапущенным ядром.
+func (s *Server) xrayApply(w http.ResponseWriter, r *http.Request) {
+	if s.Panel == nil {
+		writeError(w, http.StatusServiceUnavailable, "ядро не управляется панелью")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+	defer cancel()
+	if err := s.Panel.ApplyConfig(ctx); err != nil {
+		s.Log.Warn("конфиг не применён", "err", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // static отдаёт интерфейс. Неизвестный путь без расширения — это маршрут

@@ -28,12 +28,23 @@ type XrayAPI interface {
 	UserTraffic(ctx context.Context, reset bool) (map[string]xray.Traffic, error)
 }
 
+// Core — владелец работающего ядра: применяет конфиг с проверкой и
+// откатом (интерфейс для тестов).
+type Core interface {
+	Apply(ctx context.Context, config []byte) error
+}
+
 // Panel — локальный узел: база панели плюс работающее ядро.
 type Panel struct {
-	Store  *store.Store
-	API    XrayAPI
-	NodeID string
-	Log    *slog.Logger
+	Store *store.Store
+	API   XrayAPI
+	// Core — горячее применение конфига; nil — недоступно (ядром
+	// управляет кто-то другой).
+	Core Core
+	// APIAddr — адрес gRPC API Xray, нужен для сборки конфига.
+	APIAddr string
+	NodeID  string
+	Log     *slog.Logger
 	// Now — часы (в тестах подменяются); nil — time.Now.
 	Now func() time.Time
 }
@@ -50,6 +61,38 @@ func (p *Panel) log() *slog.Logger {
 		return p.Log
 	}
 	return slog.Default()
+}
+
+// ApplyConfig собирает конфиг Xray из инбаундов базы и применяет его к
+// ядру без перезапуска панели. Попытка — успешная или нет — пишется в
+// историю версий: последняя с TestOK — рабочая, по ней делается откат.
+// При успехе сверяет пользователей с новым ядром (инбаунды могли
+// появиться или исчезнуть).
+func (p *Panel) ApplyConfig(ctx context.Context) error {
+	if p.Core == nil {
+		return errors.New("ядро не управляется панелью, применение недоступно")
+	}
+	inbounds, err := p.Store.Inbounds(ctx, p.NodeID)
+	if err != nil {
+		return err
+	}
+	config, err := inbound.BuildConfig(p.APIAddr, inbounds)
+	if err != nil {
+		return err
+	}
+	applyErr := p.Core.Apply(ctx, config)
+	output := ""
+	if applyErr != nil {
+		output = applyErr.Error()
+	}
+	if _, err := p.Store.SaveConfigVersion(ctx, p.NodeID, string(config), applyErr == nil, output); err != nil {
+		p.log().Warn("версия конфига не записана", "err", err)
+	}
+	if applyErr != nil {
+		return applyErr
+	}
+	p.log().Info("конфиг применён к ядру", "inbounds", len(inbounds))
+	return p.SyncUsers(ctx)
 }
 
 // SyncUsers сверяет пользователей каждого включённого инбаунда с базой:

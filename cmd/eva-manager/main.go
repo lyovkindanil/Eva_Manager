@@ -1,6 +1,7 @@
 // Команда eva-manager — веб-панель для серверов на Xray-core.
 //
 //	eva-manager serve        запустить панель (по умолчанию)
+//	eva-manager apply        применить конфиг из базы к работающему ядру
 //	eva-manager migrate      применить миграции базы и выйти
 //	eva-manager xray-config  напечатать базовый конфиг Xray
 //	eva-manager version      версия панели
@@ -58,6 +59,8 @@ func run(ctx context.Context, cmd string, log *slog.Logger) error {
 		return inboundCmd(ctx, cfg, os.Args[2:])
 	case "user":
 		return userCmd(ctx, cfg, os.Args[2:])
+	case "apply":
+		return applyCmd(ctx, cfg)
 	case "migrate":
 		d, err := db.Open(ctx, cfg.DatabaseURL)
 		if err != nil {
@@ -95,6 +98,7 @@ const usage = `Использование: eva-manager <команда>
   serve          запустить панель (по умолчанию)
   inbound        инбаунды: add | list | del
   user           пользователи: add | list | show | del | enable | disable | reset-traffic
+  apply          применить конфиг из базы к работающему ядру
   migrate        применить миграции базы и выйти
   xray-config    напечатать конфиг Xray (из базы)
   version        версия панели

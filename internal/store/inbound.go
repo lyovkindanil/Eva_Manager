@@ -74,8 +74,8 @@ func (s *Store) InboundByName(ctx context.Context, nodeID, name string) (*inboun
 		FROM inbounds WHERE node_id = ? AND name = ?`, nodeID, name))
 }
 
-// SetInboundEnabled включает/выключает инбаунд. Применяется перезапуском
-// панели (сборка конфига и версии — следующий шаг этапа 1).
+// SetInboundEnabled включает/выключает инбаунд. Изменение попадает в ядро
+// при следующем применении конфига (eva-manager apply).
 func (s *Store) SetInboundEnabled(ctx context.Context, id string, enabled bool) error {
 	_, err := s.db.Exec(ctx, `UPDATE inbounds SET enabled = ? WHERE id = ?`, enabled, id)
 	return err

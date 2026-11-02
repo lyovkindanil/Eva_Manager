@@ -12,9 +12,9 @@ import (
 	"github.com/lyovkindanil/Eva_Manager/internal/store"
 )
 
-// inboundCmd — управление инбаундами: add | list | del. Изменения
-// применяются к работающему ядру перезапуском панели (применение без
-// перезапуска и версии конфига — следующий шаг этапа 1).
+// inboundCmd — управление инбаундами: add | list | del. Изменения пишутся
+// в базу и применяются к работающему ядру командой `eva-manager apply`
+// (с проверкой конфига и откатом).
 func inboundCmd(ctx context.Context, cfg *config.Config, args []string) error {
 	if len(args) == 0 {
 		return errors.New("нужна подкоманда: add | list | del\n" + usage)
@@ -53,7 +53,7 @@ func inboundCmd(ctx context.Context, cfg *config.Config, args []string) error {
 		pbk, _ := in.Reality.PublicKey()
 		fmt.Printf("Инбаунд %q создан: %s:%d, маскировка %s\n", in.Name, in.LinkHost, in.Port, in.Reality.Dest)
 		fmt.Printf("  pbk %s\n  sid %s\n  encryption: %s\n", pbk, in.Reality.ShortIDs[0], encState(in))
-		fmt.Println("Перезапустите панель, чтобы ядро подхватило инбаунд.")
+		fmt.Println("Примените к работающему ядру: eva-manager apply")
 		return nil
 	case "list":
 		list, err := st.Inbounds(ctx, node.ID)
@@ -86,7 +86,7 @@ func inboundCmd(ctx context.Context, cfg *config.Config, args []string) error {
 		if err := st.DeleteInbound(ctx, in.ID); err != nil {
 			return err
 		}
-		fmt.Printf("Инбаунд %q удалён. Перезапустите панель, чтобы применить.\n", in.Name)
+		fmt.Printf("Инбаунд %q удалён. Примените к работающему ядру: eva-manager apply\n", in.Name)
 		return nil
 	}
 	return errors.New("неизвестная подкоманда inbound " + args[0])

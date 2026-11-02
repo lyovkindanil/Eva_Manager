@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -35,6 +36,7 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	core := &supervisor{log: log}
 	x := server.Xray{Problem: core.problem}
+	var serverPanel server.Panel // nil — Xray не найден, применение недоступно
 	if bin, err := xray.FindBin(cfg.XrayBin); err != nil {
 		core.setProblem("Xray не найден: укажите путь в EVA_XRAY_BIN или установите xray в PATH")
 		log.Warn("xray не найден, панель работает без ядра", "err", err)
@@ -57,22 +59,25 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			return err
 		}
 		core.proc = x.Process
+		core.cfg = base
 		core.wg.Add(1)
-		go core.run(ctx, base)
+		go core.run(ctx)
 		log.Info("xray", "version", v, "bin", bin)
 
 		// Сборщик: сверяет пользователей с ядром, забирает трафик,
-		// применяет лимиты и сроки.
-		pn := &panel.Panel{Store: st, API: x.API, NodeID: node.ID, Log: log}
+		// применяет лимиты и сроки. Supervisor как Core даёт горячее
+		// применение конфига без перезапуска панели.
+		pn := &panel.Panel{Store: st, API: x.API, Core: core, APIAddr: cfg.XrayAPI, NodeID: node.ID, Log: log}
 		core.wg.Add(1)
 		go func() {
 			defer core.wg.Done()
 			pn.Run(ctx)
 		}()
+		serverPanel = pn
 	}
 
 	srv := &http.Server{
-		Handler:           (&server.Server{DB: d, Store: st, Xray: x, Log: log}).Handler(),
+		Handler:           (&server.Server{DB: d, Store: st, Xray: x, Panel: serverPanel, Log: log}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
@@ -101,15 +106,24 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 }
 
 // supervisor держит Xray запущенным: если ядро упало, перезапускает его
-// с тем же конфигом, с паузой от 1 до 30 секунд.
+// с тем же конфигом, с паузой от 1 до 30 секунд. Он же владеет текущим
+// конфигом и применяет новый (panel.Core): с проверкой `xray run -test`
+// и откатом, если ядро с новым конфигом падает.
 type supervisor struct {
 	log  *slog.Logger
 	proc *xray.Process
 
-	mu   sync.Mutex
+	mu  sync.Mutex // cfg и prob
+	cfg []byte     // текущий конфиг ядра
+
 	prob string
 	wg   sync.WaitGroup
 }
+
+// applyWatch — сколько ждать после перезапуска, не упадёт ли ядро с
+// новым конфигом; упало — откат на прежний. Переменная — в тестах
+// интервал сокращается.
+var applyWatch = 10 * time.Second
 
 func (s *supervisor) setProblem(p string) {
 	s.mu.Lock()
@@ -123,10 +137,52 @@ func (s *supervisor) problem() string {
 	return s.prob
 }
 
-func (s *supervisor) run(ctx context.Context, config []byte) {
+// Apply — panel.Core: проверить конфиг и перезапустить с ним ядро.
+// Пока идёт применение, run-цикл ждёт на мьютексе — гонки перезапусков
+// нет. Конфиг, не прошедший `xray run -test`, рабочее ядро не трогает;
+// ядро, упавшее сразу после старта или в первые applyWatch секунд,
+// откатывается на прежний конфиг.
+func (s *supervisor) Apply(ctx context.Context, config []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old := s.cfg
+	if err := s.proc.Restart(ctx, config); err != nil {
+		// Restart не прошёл проверку — ядро ещё живо; прошёл, но не
+		// запустился (например, занят порт) — возвращаем прежний конфиг.
+		if !s.proc.State().Running && old != nil {
+			if rerr := s.proc.Start(ctx, old); rerr != nil {
+				s.prob = "откат конфига не запустился: " + rerr.Error()
+				s.log.Error("откат конфига", "err", rerr)
+			}
+		}
+		return err
+	}
+	s.cfg = config
+	select {
+	case <-s.proc.Done():
+		st := s.proc.State()
+		s.cfg = old
+		s.prob = "конфиг откачен: " + st.LastError
+		if err := s.proc.Start(ctx, old); err != nil {
+			s.prob += "; откат не запустился: " + err.Error()
+			s.log.Error("откат конфига", "err", err)
+		}
+		return fmt.Errorf("xray упал с новым конфигом: %s", st.LastError)
+	case <-time.After(applyWatch):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	s.prob = ""
+	return nil
+}
+
+func (s *supervisor) run(ctx context.Context) {
 	defer s.wg.Done()
 	backoff := time.Second
 	for {
+		s.mu.Lock()
+		config := s.cfg
+		s.mu.Unlock()
 		if err := s.proc.Start(ctx, config); err != nil && !errors.Is(err, xray.ErrRunning) {
 			s.setProblem(err.Error())
 			s.log.Error("xray не запустился", "err", err, "retry", backoff)
