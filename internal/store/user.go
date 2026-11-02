@@ -33,10 +33,10 @@ type User struct {
 	TrafficLimit int64 `json:"traffic_limit"`
 	TrafficUsed  int64 `json:"traffic_used"`
 	// ExpiresAt — конец действия; нулевое время — бессрочно.
-	ExpiresAt time.Time `json:"expires_at"`
+	ExpiresAt time.Time  `json:"expires_at"`
 	Status    UserStatus `json:"status"`
 	Note      string     `json:"note"`
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 // ComputeStatus — статус по фактам на момент now. Ручное отключение
