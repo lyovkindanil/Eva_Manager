@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Status, type XrayStatus } from "./api";
+import { api, token, Unauthorized, type Status, type XrayStatus } from "./api";
 import { dbName, duration } from "./format";
 import { applyTheme, savedTheme, type Theme } from "./theme";
 import { Wordmark } from "./Wordmark";
@@ -10,6 +10,8 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(savedTheme());
+  const [needToken, setNeedToken] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -20,15 +22,20 @@ export function App() {
           if (!alive) return;
           setStatus(s);
           setError(null);
+          setNeedToken(false);
         })
-        .catch((e: Error) => alive && setError(e.message));
+        .catch((e: Error) => {
+          if (!alive) return;
+          if (e instanceof Unauthorized) setNeedToken(true);
+          else setError(e.message);
+        });
     load();
     const id = setInterval(load, 5000);
     return () => {
       alive = false;
       clearInterval(id);
     };
-  }, []);
+  }, [attempt]);
 
   const toggleTheme = () => {
     const t = theme === "dark" ? "light" : "dark";
@@ -49,10 +56,19 @@ export function App() {
       </header>
 
       <main className="content">
-        <h1>Обзор</h1>
-        {error && <div className="banner error">Панель не отвечает: {error}</div>}
-        {!status && !error && <p className="muted">Загрузка…</p>}
-        {status && (
+        {needToken && (
+          <TokenForm
+            retry={token.get() !== ""}
+            onSubmit={(t) => {
+              token.set(t);
+              setAttempt((n) => n + 1);
+            }}
+          />
+        )}
+        {!needToken && <h1>Обзор</h1>}
+        {!needToken && error && <div className="banner error">Панель не отвечает: {error}</div>}
+        {!needToken && !status && !error && <p className="muted">Загрузка…</p>}
+        {!needToken && status && (
           <>
             <div className="grid">
               <XrayCard x={status.xray} />
@@ -130,5 +146,33 @@ function XrayLogs() {
       </button>
       {open && <pre className="logs">{lines.length ? lines.join("\n") : "Журнал пуст"}</pre>}
     </section>
+  );
+}
+
+function TokenForm({ retry, onSubmit }: { retry: boolean; onSubmit: (t: string) => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <form
+      className="card token"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) onSubmit(value);
+      }}
+    >
+      <h1>Вход</h1>
+      <p className="muted">
+        Вставьте токен администратора. Его печатает команда <code>eva-manager token</code> на сервере.
+      </p>
+      {retry && <div className="banner error">Токен не подошёл.</div>}
+      <input
+        type="password"
+        autoFocus
+        autoComplete="current-password"
+        placeholder="Токен"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <button type="submit">Войти</button>
+    </form>
   );
 }

@@ -22,6 +22,10 @@ import (
 )
 
 func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	token, err := server.LoadToken(cfg.TokenFile())
+	if err != nil {
+		return fmt.Errorf("токен администратора: %w", err)
+	}
 	d, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -85,28 +89,39 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		serverPanel = pn
 	}
 
-	srv := &http.Server{
-		Handler:           (&server.Server{DB: d, Store: st, Xray: x, Panel: serverPanel, Log: log}).Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       2 * time.Minute,
+	srv := &server.Server{DB: d, Store: st, Xray: x, Panel: serverPanel, Token: token, Log: log}
+	servers := []*http.Server{newHTTP(srv.Handler())}
+	addrs := []string{cfg.Listen}
+	if cfg.SubListen != "" {
+		servers = append(servers, newHTTP(srv.SubHandler()))
+		addrs = append(addrs, cfg.SubListen)
 	}
-	ln, err := net.Listen("tcp", cfg.Listen)
-	if err != nil {
-		return err
+	errc := make(chan error, len(servers))
+	for i, hs := range servers {
+		ln, err := net.Listen("tcp", addrs[i])
+		if err != nil {
+			return err
+		}
+		what := "панель слушает"
+		if i > 0 {
+			what = "подписки слушают"
+		}
+		log.Info(what, "addr", "http://"+ln.Addr().String())
+		go func() { errc <- hs.Serve(ln) }()
 	}
-	log.Info("панель слушает", "addr", "http://"+ln.Addr().String())
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ln) }()
 
 	select {
-	case err := <-errc:
-		return err
+	case err = <-errc:
 	case <-ctx.Done():
 	}
 	log.Info("остановка")
 	sctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
-	err = srv.Shutdown(sctx)
+	for _, hs := range servers {
+		if e := hs.Shutdown(sctx); e != nil && (err == nil || errors.Is(err, http.ErrServerClosed)) {
+			err = e
+		}
+	}
 	core.stop()
 	if errors.Is(err, http.ErrServerClosed) {
 		err = nil
@@ -154,6 +169,10 @@ func (s *supervisor) stopping(ctx context.Context) {
 // новым конфигом; упало — откат на прежний. Переменная — в тестах
 // интервал сокращается.
 var applyWatch = 10 * time.Second
+
+func newHTTP(h http.Handler) *http.Server {
+	return &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+}
 
 func (s *supervisor) setProblem(p string) {
 	s.mu.Lock()

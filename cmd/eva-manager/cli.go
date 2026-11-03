@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -32,11 +33,20 @@ func openStore(ctx context.Context, cfg *config.Config) (*store.Store, *store.No
 // applyCmd просит работающую панель собрать конфиг из базы и применить
 // его к ядру (проверка и откат — на стороне панели).
 func applyCmd(ctx context.Context, cfg *config.Config) error {
-	url := "http://" + cfg.Listen + "/api/xray/apply"
+	token := os.Getenv(config.EnvToken)
+	if token == "" {
+		b, err := os.ReadFile(cfg.TokenFile())
+		if err != nil {
+			return fmt.Errorf("токен администратора: %w (запустите от владельца %s или задайте %s)", err, cfg.DataDir, config.EnvToken)
+		}
+		token = strings.TrimSpace(string(b))
+	}
+	url := config.LocalURL(cfg.Listen) + "/api/xray/apply"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
 	if err != nil {
 		return fmt.Errorf("панель не отвечает (запущена?): %w", err)

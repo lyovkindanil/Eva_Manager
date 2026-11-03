@@ -73,6 +73,16 @@ go test ./...
 | `EVA_LISTEN` | `127.0.0.1:8080` | Адрес панели |
 | `EVA_XRAY_BIN` | `xray` из `PATH` | Путь к Xray |
 | `EVA_XRAY_API` | `127.0.0.1:10085` | gRPC API Xray, только loopback |
+| `EVA_SUB_LISTEN` | — | Отдельный адрес только для подписок `/sub/…`, например `0.0.0.0:2096`, когда панель слушает 127.0.0.1 |
+| `EVA_SUB_URL` | — | Внешний адрес подписок для ссылок, например `https://vpn.example.com:2096` |
+| `EVA_TOKEN` | из `$EVA_DATA_DIR/admin.token` | Токен администратора для `eva-manager apply` |
+
+API панели (`/api/…`, кроме `/api/health`) требует заголовок
+`Authorization: Bearer <токен>`. Токен создаётся при первом запуске в
+`$EVA_DATA_DIR/admin.token` (права 0600), напечатать его —
+`eva-manager token`; веб-интерфейс спрашивает его при входе. До входа по
+паролю (этап 3) это единственная защита API, поэтому подписки лучше
+открывать наружу через `EVA_SUB_LISTEN`, а саму панель держать на 127.0.0.1.
 
 Команды: `eva-manager serve` (по умолчанию), `migrate`, `xray-config`, `version`.
 

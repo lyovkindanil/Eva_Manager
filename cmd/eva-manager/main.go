@@ -22,6 +22,7 @@ import (
 	"github.com/lyovkindanil/Eva_Manager/internal/config"
 	"github.com/lyovkindanil/Eva_Manager/internal/db"
 	"github.com/lyovkindanil/Eva_Manager/internal/inbound"
+	"github.com/lyovkindanil/Eva_Manager/internal/server"
 )
 
 func main() {
@@ -53,6 +54,13 @@ func run(ctx context.Context, cmd string, log *slog.Logger) error {
 		return err
 	}
 	switch cmd {
+	case "token":
+		tok, err := server.LoadToken(cfg.TokenFile())
+		if err != nil {
+			return err
+		}
+		fmt.Println(tok)
+		return nil
 	case "serve":
 		return serve(ctx, cfg, log)
 	case "inbound":
@@ -99,6 +107,7 @@ const usage = `Использование: eva-manager <команда>
   inbound        инбаунды: add | list | del
   user           пользователи: add | list | show | del | enable | disable | reset-traffic
   apply          применить конфиг из базы к работающему ядру
+  token          токен администратора для API и веб-интерфейса
   migrate        применить миграции базы и выйти
   xray-config    напечатать конфиг Xray (из базы)
   version        версия панели
@@ -109,4 +118,7 @@ const usage = `Использование: eva-manager <команда>
   EVA_LISTEN        адрес панели (по умолчанию 127.0.0.1:8080)
   EVA_XRAY_BIN      путь к xray (по умолчанию ищется в PATH)
   EVA_XRAY_API      адрес gRPC API Xray, только loopback (по умолчанию 127.0.0.1:10085)
+  EVA_SUB_LISTEN    отдельный адрес только для подписок, например 0.0.0.0:2096
+  EVA_SUB_URL       внешний адрес подписок, например https://vpn.example.com:2096
+  EVA_TOKEN         токен администратора для eva-manager apply (по умолчанию EVA_DATA_DIR/admin.token)
 `
