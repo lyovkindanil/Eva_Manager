@@ -41,6 +41,9 @@ type Server struct {
 	Xray  Xray
 	// Panel — применение конфига к ядру; nil — ядро не управляется панелью.
 	Panel Panel
+	// Token — токен администратора: без него /api/… (кроме health)
+	// отвечает 401. Пустой — API закрыт целиком.
+	Token string
 	// Web — файлы интерфейса; по умолчанию встроенные.
 	Web fs.FS
 	Log *slog.Logger
@@ -55,15 +58,30 @@ func (s *Server) Handler() http.Handler {
 		s.Log = slog.Default()
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", s.health)
-	mux.HandleFunc("GET /api/status", s.status)
-	mux.HandleFunc("GET /api/xray/logs", s.xrayLogs)
-	mux.HandleFunc("POST /api/xray/apply", s.xrayApply)
-	mux.HandleFunc("GET /sub/{token}", s.subscription)
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+	api := http.NewServeMux()
+	api.HandleFunc("GET /api/status", s.status)
+	api.HandleFunc("GET /api/xray/logs", s.xrayLogs)
+	api.HandleFunc("POST /api/xray/apply", s.xrayApply)
+	api.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "нет такого метода API")
 	})
+	// Состояние, журнал ядра (в нём адреса клиентов) и применение
+	// конфига — только с токеном: в Docker панель слушает 0.0.0.0.
+	mux.HandleFunc("GET /api/health", s.health)
+	mux.Handle("/api/", s.requireToken(api))
+	mux.HandleFunc("GET /sub/{token}", s.subscription)
 	mux.Handle("/", s.static())
+	return securityHeaders(mux)
+}
+
+// SubHandler — только подписки /sub/…: для отдельного адреса
+// EVA_SUB_LISTEN, открытого наружу, когда панель слушает 127.0.0.1.
+func (s *Server) SubHandler() http.Handler {
+	if s.Log == nil {
+		s.Log = slog.Default()
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sub/{token}", s.subscription)
 	return securityHeaders(mux)
 }
 

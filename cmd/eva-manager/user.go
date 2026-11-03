@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/lyovkindanil/Eva_Manager/internal/config"
@@ -130,6 +129,9 @@ func printUserAccess(ctx context.Context, st *store.Store, cfg *config.Config, u
 	if len(inbounds) == 0 {
 		fmt.Println("  (включённых инбаундов нет — добавьте: eva-manager inbound add ...)")
 	}
-	fmt.Printf("Подписка: http://%s/sub/%s\n", strings.TrimPrefix(cfg.Listen, "http://"), u.SubToken)
+	fmt.Printf("Подписка: %s\n", cfg.SubscriptionURL(u.SubToken))
+	if cfg.SubURL == "" {
+		fmt.Printf("  (адрес для этой машины; внешний задаётся в %s, слушать наружу — %s)\n", config.EnvSubURL, config.EnvSubListen)
+	}
 	return nil
 }

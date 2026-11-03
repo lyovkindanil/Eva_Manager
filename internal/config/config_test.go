@@ -49,3 +49,25 @@ func TestBadListen(t *testing.T) {
 		t.Error("адрес без хоста принят")
 	}
 }
+
+func TestSub(t *testing.T) {
+	c, err := load(env(map[string]string{EnvSubListen: "0.0.0.0:2096", EnvSubURL: "https://vpn.example.com:2096/"}))
+	if err != nil || c.SubURL != "https://vpn.example.com:2096" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if u := c.SubscriptionURL("t"); u != "https://vpn.example.com:2096/sub/t" {
+		t.Errorf("%s", u)
+	}
+	c.SubURL = ""
+	if u := c.SubscriptionURL("t"); u != "http://127.0.0.1:2096/sub/t" {
+		t.Errorf("%s", u)
+	}
+	for _, bad := range []string{"vpn.example.com", "ftp://x", "https://x/?a=b"} {
+		if _, err := load(env(map[string]string{EnvSubURL: bad})); err == nil {
+			t.Errorf("%s принят", bad)
+		}
+	}
+	if _, err := load(env(map[string]string{EnvSubListen: "2096"})); err == nil {
+		t.Error("адрес подписок без хоста принят")
+	}
+}
