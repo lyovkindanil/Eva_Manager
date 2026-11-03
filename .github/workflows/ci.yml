@@ -45,7 +45,9 @@ jobs:
       # Тесты с PostgreSQL и Xray не должны тихо пропускаться.
       - name: Ничего не пропущено
         run: |
-          if grep -E -- '--- SKIP' test.log; then
+          # TestVPN4EvaClient нужен vpn4eva-bench из приватного репозитория
+          # клиента — в CI его нет, тест запускается локально.
+          if grep -E -- '--- SKIP' test.log | grep -v 'TestVPN4EvaClient'; then
             echo "::error::есть пропущенные тесты"
             exit 1
           fi
