@@ -21,15 +21,23 @@ func newServer(t *testing.T, d *db.DB, webFS fstest.MapFS) *httptest.Server {
 	if _, err := st.EnsureLocalNode(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{DB: d, Store: st, Web: webFS, Xray: Xray{Problem: func() string { return "xray не найден" }}}
+	s := &Server{DB: d, Store: st, Web: webFS, Token: testToken, Xray: Xray{Problem: func() string { return "xray не найден" }}}
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts
 }
 
+const testToken = "test-token-0123456789abcdef"
+
+// get — запрос с токеном администратора.
 func get(t *testing.T, url string) (*http.Response, string) {
 	t.Helper()
-	r, err := http.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	r, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

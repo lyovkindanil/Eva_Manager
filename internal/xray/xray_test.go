@@ -13,9 +13,6 @@ import (
 	"time"
 )
 
-// EnvXrayBin — путь к настоящему Xray для интеграционных тестов (так делает CI).
-const EnvXrayBin = "EVA_TEST_XRAY_BIN"
-
 // fakeXray пишет скрипт, который ведёт себя как xray: version, run -test
 // (отвергает конфиг со словом "broken") и run (печатает строку и ждёт).
 func fakeXray(t *testing.T) string {
