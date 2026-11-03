@@ -80,7 +80,11 @@ jobs:
         run: |
           docker run -d --name eva -p 127.0.0.1:8080:8080 eva-manager:ci
           for i in $(seq 1 30); do
-            if s=$(curl -fsS http://127.0.0.1:8080/api/status) && echo "$s" | grep -q '"api":true'; then
+            # API под токеном администратора: без него — 401.
+            if tok=$(docker exec eva eva-manager token 2>/dev/null) &&
+              [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/status)" = 401 ] &&
+              s=$(curl -fsS -H "Authorization: Bearer $tok" http://127.0.0.1:8080/api/status) &&
+              echo "$s" | grep -q '"api":true'; then
               echo "$s"
               exit 0
             fi

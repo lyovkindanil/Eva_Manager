@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // LoadToken читает токен администратора из файла, а если файла нет —
@@ -37,6 +38,12 @@ func LoadToken(path string) (string, error) {
 		return "", err
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		// Файл только что создал другой процесс (панель или
+		// eva-manager token): берём его токен.
+		time.Sleep(50 * time.Millisecond)
+		return LoadToken(path)
+	}
 	if err != nil {
 		return "", err
 	}
