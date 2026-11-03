@@ -60,15 +60,24 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 		core.proc = x.Process
 		core.cfg = base
-		core.wg.Add(1)
-		go core.run(ctx)
 		log.Info("xray", "version", v, "bin", bin)
 
 		// Сборщик: сверяет пользователей с ядром, забирает трафик,
 		// применяет лимиты и сроки. Supervisor как Core даёт горячее
 		// применение конфига без перезапуска панели.
 		pn := &panel.Panel{Store: st, API: x.API, Core: core, APIAddr: cfg.XrayAPI, NodeID: node.ID, Log: log}
-		core.wg.Add(1)
+		core.onStart = func(ctx context.Context) {
+			if err := pn.SyncUsers(ctx); err != nil {
+				log.Warn("пользователи после запуска ядра", "err", err)
+			}
+		}
+		core.beforeStop = func(ctx context.Context) {
+			if err := pn.CollectOnce(ctx); err != nil {
+				log.Warn("трафик перед остановкой ядра", "err", err)
+			}
+		}
+		core.wg.Add(2)
+		go core.run(ctx)
 		go func() {
 			defer core.wg.Done()
 			pn.Run(ctx)
@@ -118,6 +127,27 @@ type supervisor struct {
 
 	prob string
 	wg   sync.WaitGroup
+
+	// onStart вызывается после каждого запуска ядра: при старте, после
+	// падения, после применения и отката. В конфиге пользователей нет,
+	// поэтому без этого запущенное заново ядро до следующего тика
+	// сборщика (до 30 секунд) не пускало бы никого.
+	onStart func(context.Context)
+	// beforeStop вызывается перед каждой остановкой ядра, пока оно живо:
+	// счётчики трафика в ядре с прошлого тика иначе пропали бы.
+	beforeStop func(context.Context)
+}
+
+func (s *supervisor) started(ctx context.Context) {
+	if s.onStart != nil && s.proc.State().Running {
+		s.onStart(ctx)
+	}
+}
+
+func (s *supervisor) stopping(ctx context.Context) {
+	if s.beforeStop != nil && s.proc.State().Running {
+		s.beforeStop(ctx)
+	}
 }
 
 // applyWatch — сколько ждать после перезапуска, не упадёт ли ядро с
@@ -146,6 +176,13 @@ func (s *supervisor) Apply(ctx context.Context, config []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	old := s.cfg
+	// Restart сначала проверяет конфиг (`xray run -test`); трафик
+	// забираем только если конфиг годен и ядро правда будет остановлено.
+	if err := xray.Test(ctx, s.proc.Bin, config); err != nil {
+		return err
+	}
+	s.stopping(ctx)
+	defer s.started(ctx)
 	if err := s.proc.Restart(ctx, config); err != nil {
 		// Restart не прошёл проверку — ядро ещё живо; прошёл, но не
 		// запустился (например, занят порт) — возвращаем прежний конфиг.
@@ -181,13 +218,16 @@ func (s *supervisor) run(ctx context.Context) {
 	backoff := time.Second
 	for {
 		s.mu.Lock()
-		config := s.cfg
+		err := s.proc.Start(ctx, s.cfg)
 		s.mu.Unlock()
-		if err := s.proc.Start(ctx, config); err != nil && !errors.Is(err, xray.ErrRunning) {
+		if err != nil && !errors.Is(err, xray.ErrRunning) {
 			s.setProblem(err.Error())
 			s.log.Error("xray не запустился", "err", err, "retry", backoff)
 		} else {
-			s.setProblem("")
+			if err == nil {
+				s.setProblem("")
+				s.started(ctx)
+			}
 			started := time.Now()
 			select {
 			case <-ctx.Done():
@@ -197,7 +237,15 @@ func (s *supervisor) run(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
+			// Ядро могло остановить Apply: тогда, дождавшись мьютекса,
+			// видим уже новый процесс — это не падение.
+			s.mu.Lock()
 			st := s.proc.State()
+			s.mu.Unlock()
+			if st.Running {
+				backoff = time.Second
+				continue
+			}
 			s.setProblem("Xray упал, перезапуск: " + st.LastError)
 			s.log.Error("xray завершился", "err", st.LastError)
 			if time.Since(started) > time.Minute {
@@ -215,7 +263,12 @@ func (s *supervisor) run(ctx context.Context) {
 
 func (s *supervisor) stop() {
 	if s.proc != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		s.mu.Lock()
+		s.stopping(ctx)
 		_ = s.proc.Stop()
+		s.mu.Unlock()
+		cancel()
 	}
 	s.wg.Wait()
 }
