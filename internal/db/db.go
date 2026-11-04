@@ -143,6 +143,10 @@ func (t *Tx) Exec(ctx context.Context, query string, args ...any) (sql.Result, e
 	return t.ExecContext(ctx, t.db.Rebind(query), args...)
 }
 
+func (t *Tx) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return t.QueryContext(ctx, t.db.Rebind(query), args...)
+}
+
 func (t *Tx) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
 	return t.QueryRowContext(ctx, t.db.Rebind(query), args...)
 }

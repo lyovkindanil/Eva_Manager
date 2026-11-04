@@ -15,7 +15,7 @@ import (
 const subUpdateInterval = 12
 
 // subscription — GET /sub/<токен>: ссылки пользователя в формате v2rayN
-// (base64 от списка ссылок построчно) плюс заголовки, которые показывает
+// (base64 от списка ссылок построчно; AmneziaWG — ключами vpn://) плюс заголовки, которые показывает
 // VPN4Eva: profile-title (кириллица — в форме base64:…),
 // subscription-userinfo (трафик и срок) и profile-update-interval.
 //
@@ -45,6 +45,21 @@ func (s *Server) subscription(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		links = append(links, link)
+	}
+	// AmneziaWG — ключами vpn:// (формат AmneziaVPN): их понимают VPN4Eva
+	// и приложение AmneziaVPN, остальные клиенты такие строки пропускают.
+	awgs, err := s.Store.UserAWGs(r.Context(), u.ID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	for _, a := range awgs {
+		key, err := a.Interface.VPNKey(a.Peer, u.Name+" · "+a.Interface.Name)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		links = append(links, key)
 	}
 
 	h := w.Header()

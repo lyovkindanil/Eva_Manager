@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lyovkindanil/Eva_Manager/internal/awg"
 	"github.com/lyovkindanil/Eva_Manager/internal/buildinfo"
 	"github.com/lyovkindanil/Eva_Manager/internal/db"
 	"github.com/lyovkindanil/Eva_Manager/internal/store"
@@ -44,6 +45,8 @@ type Server struct {
 	// Token — токен администратора: без него /api/… (кроме health)
 	// отвечает 401. Пустой — API закрыт целиком.
 	Token string
+	// AWG — состояние процессов AmneziaWG; nil — недоступно.
+	AWG func() []awg.Status
 	// Web — файлы интерфейса; по умолчанию встроенные.
 	Web fs.FS
 	Log *slog.Logger
@@ -97,10 +100,12 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 // Status — ответ /api/status.
 type Status struct {
-	Version  string       `json:"version"`
-	Database DBStatus     `json:"database"`
-	Xray     XrayStatus   `json:"xray"`
-	Nodes    []store.Node `json:"nodes"`
+	Version  string     `json:"version"`
+	Database DBStatus   `json:"database"`
+	Xray     XrayStatus `json:"xray"`
+	// AWG — интерфейсы AmneziaWG: работает ли процесс и что мешает.
+	AWG   []awg.Status `json:"awg"`
+	Nodes []store.Node `json:"nodes"`
 }
 
 type DBStatus struct {
@@ -135,6 +140,10 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		Version:  buildinfo.Version,
 		Database: DBStatus{Dialect: string(s.DB.Dialect), Schema: schema},
 		Nodes:    nodes,
+		AWG:      []awg.Status{},
+	}
+	if s.AWG != nil {
+		st.AWG = s.AWG()
 	}
 	x := &st.Xray
 	x.Installed = s.Xray.Version != ""

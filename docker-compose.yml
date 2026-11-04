@@ -4,8 +4,10 @@
 #   EVA_DB_PASSWORD=… docker compose --profile postgres up -d
 #                                              панель с PostgreSQL (и EVA_DATABASE_URL ниже)
 #
-# Сеть хоста: порты инбаундов Xray задаются в панели и меняются без
-# пересборки контейнера. Панель слушает только 127.0.0.1:8080 на хосте;
+# Сеть хоста: порты инбаундов Xray и AmneziaWG задаются в панели и
+# меняются без пересборки контейнера. Интерфейсы AmneziaWG (awg0…) видны
+# на хосте в `ip a`; их состояние — `docker compose exec eva-manager
+# eva-manager awg list`. Панель слушает только 127.0.0.1:8080 на хосте;
 # до входа по паролю (этап 3) открывайте её через SSH-туннель:
 #   ssh -L 8080:127.0.0.1:8080 root@сервер
 services:
@@ -13,6 +15,11 @@ services:
     build: .
     network_mode: host
     restart: unless-stopped
+    # AmneziaWG: интерфейсы awg0… и NAT для клиентов. Без этих строк
+    # панель и Xray работают, а AmneziaWG сообщит, что нет прав.
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun:/dev/net/tun
     environment:
       EVA_LISTEN: 127.0.0.1:8080
       # С профилем postgres раскомментируйте:

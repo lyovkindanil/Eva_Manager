@@ -42,13 +42,23 @@ jobs:
           EVA_TEST_POSTGRES_URL: postgres://eva:eva@127.0.0.1:5432/eva_test?sslmode=disable
           EVA_TEST_XRAY_BIN: ${{ runner.temp }}/xray/xray
         run: go test -race -count=1 -v ./... 2>&1 | tee test.log; exit "${PIPESTATUS[0]}"
+      # Настоящие интерфейсы AmneziaWG: процесс awg-run, NAT в iptables
+      # раннера (с политикой FORWARD DROP от Docker), перезапуск при падении.
+      - name: AmneziaWG (root)
+        run: sudo -E env "PATH=$PATH" go test -count=1 -v -run 'TestRun$|TestAWGServer' ./internal/awg/ ./internal/e2e/ 2>&1 | tee awg.log; exit "${PIPESTATUS[0]}"
       # Тесты с PostgreSQL и Xray не должны тихо пропускаться.
       - name: Ничего не пропущено
         run: |
-          # TestVPN4EvaClient нужен vpn4eva-bench из приватного репозитория
-          # клиента — в CI его нет, тест запускается локально.
-          if grep -E -- '--- SKIP' test.log | grep -v 'TestVPN4EvaClient'; then
+          # TestVPN4EvaClient и TestVPN4EvaAWG нужен vpn4eva-bench из
+          # приватного репозитория клиента — в CI его нет, тесты
+          # запускаются локально. TestRun и TestAWGServer без root
+          # пропускаются и идут отдельным шагом через sudo.
+          if grep -E -- '--- SKIP' test.log | grep -v -E 'TestVPN4EvaClient|TestVPN4EvaAWG|TestRun |TestAWGServer'; then
             echo "::error::есть пропущенные тесты"
+            exit 1
+          fi
+          if grep -E -- '--- SKIP' awg.log || ! grep -q -- '--- PASS: TestRun ' awg.log || ! grep -q -- '--- PASS: TestAWGServer' awg.log; then
+            echo "::error::тесты AmneziaWG с root не прошли полностью"
             exit 1
           fi
 
@@ -92,4 +102,28 @@ jobs:
           done
           echo "$s"
           docker logs eva
+          exit 1
+      # AmneziaWG в контейнере: права только у eva-awg, iptables и сокеты
+      # от пользователя eva, интерфейс и NAT появляются на хосте.
+      - name: AmneziaWG в контейнере
+        run: |
+          docker run -d --name eva-awg --network host --cap-add NET_ADMIN --device /dev/net/tun \
+            -e EVA_LISTEN=127.0.0.1:8081 eva-manager:ci
+          sleep 2
+          docker exec eva-awg eva-manager awg add --host 127.0.0.1 --port 51999
+          docker exec eva-awg eva-manager user add --name ci
+          docker exec eva-awg eva-manager user conf --name ci | grep -q '^Jc = '
+          tok=$(docker exec eva-awg eva-manager token)
+          for i in $(seq 1 40); do
+            if s=$(curl -fsS -H "Authorization: Bearer $tok" http://127.0.0.1:8081/api/status) &&
+              echo "$s" | jq -e '.awg[0].running' >/dev/null &&
+              ip link show awg0 >/dev/null 2>&1 &&
+              sudo iptables -t nat -S POSTROUTING | grep -q '10.8.0.0/24'; then
+              echo "$s" | jq .awg
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "$s"
+          docker logs eva-awg
           exit 1

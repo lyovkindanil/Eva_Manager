@@ -78,7 +78,8 @@ func newSubToken() string {
 
 // CreateUser создаёт пользователя: UUID и токен подписки генерируются.
 // trafficLimit в байтах (0 — без лимита), нулевое expiresAt — бессрочно.
-// Доступ открывается ко всем включённым инбаундам локального узла.
+// Доступ открывается ко всем включённым инбаундам узла, на интерфейсах
+// AmneziaWG узла выдаются пиры.
 func (s *Store) CreateUser(ctx context.Context, nodeID, name, note string, trafficLimit int64, expiresAt time.Time) (*User, error) {
 	if name == "" {
 		return nil, errors.New("пустое имя пользователя")
@@ -105,10 +106,13 @@ func (s *Store) CreateUser(ctx context.Context, nodeID, name, note string, traff
 			u.ID, u.Name, u.UUID, u.SubToken, u.TrafficLimit, expires, string(u.Status), u.Note, u.CreatedAt.Unix()); err != nil {
 			return err
 		}
-		// Доступ ко всем включённым инбаундам узла.
-		_, err := tx.Exec(ctx, `INSERT INTO user_inbounds (user_id, inbound_id)
-			SELECT ?, id FROM inbounds WHERE node_id = ? AND enabled`, u.ID, nodeID)
-		return err
+		// Доступ ко всем включённым инбаундам узла и пиры на всех
+		// интерфейсах AmneziaWG.
+		if _, err := tx.Exec(ctx, `INSERT INTO user_inbounds (user_id, inbound_id)
+			SELECT ?, id FROM inbounds WHERE node_id = ? AND enabled`, u.ID, nodeID); err != nil {
+			return err
+		}
+		return addUserPeers(ctx, tx, nodeID, u.ID, u.CreatedAt.Unix())
 	})
 	if err != nil {
 		return nil, fmt.Errorf("создать пользователя: %w", err)
