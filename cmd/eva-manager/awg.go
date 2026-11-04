@@ -44,27 +44,10 @@ func awgCmd(ctx context.Context, cfg *config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
-		if *iface == "" {
-			*iface = nextIface(existing)
-		}
-		if *name == "" {
-			*name = "AmneziaWG"
-			if len(existing) > 0 {
-				*name += " " + *iface
-			}
-		}
-		if *port == 0 {
-			*port = nextPort(existing)
-		}
-		in, err := awg.New(store.NewID(), node.ID, *name, *iface, *port, *host)
+		in, err := awg.NewOnNode(store.NewID(), node.ID, awg.Options{
+			Name: *name, Iface: *iface, Host: *host, Subnet: *subnet, DNS: *dns, Port: *port}, existing)
 		if err != nil {
 			return err
-		}
-		in.Settings.DNS = *dns
-		if *subnet != "" {
-			in.Settings.Subnet = *subnet
-		} else {
-			in.Settings.Subnet = nextSubnet(existing)
 		}
 		if err := st.CreateAWG(ctx, in); err != nil {
 			return err
@@ -113,43 +96,6 @@ func awgCmd(ctx context.Context, cfg *config.Config, args []string) error {
 		return nil
 	}
 	return errors.New("неизвестная подкоманда awg " + args[0])
-}
-
-func nextIface(existing []awg.Interface) string {
-	used := map[string]bool{}
-	for _, in := range existing {
-		used[in.Iface] = true
-	}
-	for i := 0; ; i++ {
-		if n := fmt.Sprintf("awg%d", i); !used[n] {
-			return n
-		}
-	}
-}
-
-func nextPort(existing []awg.Interface) int {
-	used := map[int]bool{}
-	for _, in := range existing {
-		used[in.Port] = true
-	}
-	p := awg.DefaultPort
-	for used[p] {
-		p++
-	}
-	return p
-}
-
-func nextSubnet(existing []awg.Interface) string {
-	used := map[string]bool{}
-	for _, in := range existing {
-		used[in.Settings.Subnet] = true
-	}
-	for i := 8; i < 255; i++ {
-		if n := fmt.Sprintf("10.%d.0.0/24", i); !used[n] {
-			return n
-		}
-	}
-	return awg.DefaultSubnet
 }
 
 // awgRunCmd — процесс одного интерфейса AmneziaWG (его запускает панель).

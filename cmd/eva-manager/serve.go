@@ -113,7 +113,8 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}()
 	var serverPanel server.Panel = pn
 
-	srv := &server.Server{DB: d, Store: st, Xray: x, Panel: serverPanel, Token: token, Log: log}
+	srv := &server.Server{DB: d, Store: st, Xray: x, Panel: serverPanel, Token: token, Log: log,
+		SubURL: cfg.SubURL, SubListen: cfg.SubListen}
 	if mgr != nil {
 		srv.AWG = mgr.Statuses
 	}

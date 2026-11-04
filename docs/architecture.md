@@ -143,13 +143,61 @@ AUTOINCREMENT и SERIAL). Запросы пишутся с `?` и для Postgre
 узел (`is_local`). На этапе 4 остальные серверы подключатся агентом — тем
 же бинарником в режиме узла, по mTLS — без изменения схемы.
 
+## Установка
+
+`install.sh` ставит архив выпуска (`scripts/dist.sh`, на тег `v*` их
+собирает `.github/workflows/release.yml` вместе с `checksums.txt`):
+
+| Путь | Что там |
+|---|---|
+| `/usr/local/lib/eva-manager/eva-manager`, `…/xray/` | Панель, Xray и geo-файлы |
+| `/usr/local/bin/eva-manager` | Обёртка для CLI: читает `/etc/eva-manager/env` и от root переходит на пользователя `eva`, чтобы в каталоге данных не появлялись файлы root |
+| `/etc/eva-manager/env` | Настройки службы (root:eva 0640), скрипт его не перезаписывает |
+| `/var/lib/eva-manager` | Данные (eva 0700) |
+| `/etc/systemd/system/eva-manager.service` | Служба |
+
+Служба работает от `eva` с `AmbientCapabilities=CAP_NET_ADMIN
+CAP_NET_BIND_SERVICE CAP_NET_RAW`: эти права наследуют Xray (порт 443),
+`awg-run` (интерфейс) и iptables (NAT). `RuntimeDirectory=amneziawg` даёт
+`eva` каталог сокетов `/run/amneziawg`, а лок iptables-legacy лежит там же
+(`XTABLES_LOCKFILE`). `ip_forward` включается через
+`/etc/sysctl.d/99-eva-manager.conf`: без root служба его не переключит.
+
+В Docker ambient-права недоступны, поэтому там права на сеть даны файлам:
+копии бинарника `eva-awg` и xtables.
+
+## Вход
+
+Администраторы — таблица `admins` (пароль argon2id в формате PHC), сессии —
+`sessions` (в базе только SHA-256 токена, срок 14 дней). Cookie
+`eva_session`: `HttpOnly`, `SameSite=Strict`, `Secure` при HTTPS. Запросы с
+cookie, кроме GET, должны нести заголовок `X-Eva-Request` — его не может
+поставить чужая страница без CORS. `Authorization: Bearer <admin.token>`
+тоже принимается — для CLI и скриптов. Мастер первого запуска
+(`POST /api/setup`) работает, только пока администраторов нет, и требует
+этот токен. Вход ограничен 5 неудачами за 5 минут с адреса.
+
 ## HTTP API
 
-| Метод | Что отдаёт |
+Без входа доступны только `/api/health`, `/api/setup` и `/api/login`.
+
+| Метод | Что делает |
 |---|---|
 | `GET /api/health` | `{"status":"ok"}`, если база отвечает |
+| `GET/POST /api/setup` | Нужен ли мастер; создать первого администратора (с токеном) |
+| `POST /api/login`, `/api/logout`, `GET /api/me` | Сессия |
 | `GET /api/status` | Версия панели, база и схема, состояние Xray и интерфейсов AmneziaWG, узлы |
 | `GET /api/xray/logs` | Последние 500 строк вывода Xray |
+| `GET/POST /api/users`, `GET/PATCH/DELETE /api/users/{id}` | Пользователи; в ответе — ссылки каждого подключения и адрес подписки |
+| `POST /api/users/{id}/reset-traffic`, `/rotate-sub` | Сбросить трафик, сменить ссылку подписки |
+| `GET /api/users/{id}/traffic?days=30` | Трафик по дням |
+| `GET /api/users/{id}/awg/{awg}` | Файл `.conf` AmneziaWG |
+| `GET/POST /api/inbounds`, `PATCH/DELETE /api/inbounds/{id}` | Инбаунды Xray (закрытые ключи не отдаются) |
+| `GET/POST /api/awg`, `PATCH/DELETE /api/awg/{id}` | Интерфейсы AmneziaWG |
+| `GET/PUT /api/settings`, `POST /api/apply` | Адрес подписок; применить конфиг |
+
+Изменения пользователей сразу уходят в Xray и AmneziaWG; изменения
+подключений применяются и возвращают ошибку применения, если она была.
 
 Остальные пути отдают интерфейс; неизвестный путь без расширения — его
 маршрут, на него приходит `index.html`.

@@ -127,3 +127,66 @@ jobs:
           echo "$s"
           docker logs eva-awg
           exit 1
+
+  install:
+    name: install.sh (systemd)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Архив выпуска
+        run: |
+          (cd web && npm ci && npm run build)
+          scripts/dist.sh 0.0.0-ci amd64 "$RUNNER_TEMP/dist"
+      # Настоящий systemd раннера: служба от eva с правами на сеть, токен
+      # первого запуска, мастер настройки, AmneziaWG с NAT, обновление
+      # поверх и удаление с сохранением данных.
+      - name: Установка
+        run: |
+          sudo sh install.sh --file "$RUNNER_TEMP/dist/eva-manager_0.0.0-ci_linux_amd64.tar.gz"
+          systemctl status eva-manager --no-pager
+          test "$(ps -o user= -p "$(systemctl show -p MainPID --value eva-manager)")" = eva
+          tok=$(sudo eva-manager token)
+          curl -fsS -c jar -H 'Content-Type: application/json' -H 'X-Eva-Request: 1' \
+            -d "{\"token\":\"$tok\",\"username\":\"admin\",\"password\":\"ci-password-123\"}" \
+            http://127.0.0.1:8080/api/setup
+          curl -fsS -b jar http://127.0.0.1:8080/api/me | grep -q '"admin"'
+      - name: Xray и AmneziaWG под службой
+        run: |
+          sudo eva-manager inbound add --name CI --host 127.0.0.1 --port 443
+          sudo eva-manager awg add --host 127.0.0.1 --port 51999
+          sudo eva-manager user add --name ci
+          sudo eva-manager apply
+          tok=$(sudo eva-manager token)
+          for i in $(seq 1 40); do
+            if s=$(curl -fsS -H "Authorization: Bearer $tok" http://127.0.0.1:8080/api/status) &&
+              echo "$s" | jq -e '.xray.running and .awg[0].running' >/dev/null &&
+              sudo ss -ltn | grep -q ':443 ' &&
+              ip link show awg0 >/dev/null 2>&1 &&
+              sudo iptables -t nat -S POSTROUTING | grep -q '10.8.0.0/24'; then
+              echo "$s" | jq '{xray, awg}'
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "$s"
+          sudo journalctl -u eva-manager -n 80 --no-pager
+          exit 1
+      - name: Обновление и удаление
+        run: |
+          sudo sh install.sh --file "$RUNNER_TEMP/dist/eva-manager_0.0.0-ci_linux_amd64.tar.gz" | tee up.log
+          grep -q 'обновлён' up.log
+          sudo eva-manager user list | grep -q ci
+          sudo sh install.sh --uninstall
+          if systemctl is-active --quiet eva-manager || ip link show awg0 2>/dev/null; then
+            echo "::error::после удаления служба или awg0 остались"
+            exit 1
+          fi
+          sudo test -f /var/lib/eva-manager/eva.db

@@ -1,0 +1,40 @@
+# Eva Manager — панель Xray и AmneziaWG. Ставит install.sh.
+[Unit]
+Description=Eva Manager (Xray и AmneziaWG)
+Documentation=https://github.com/lyovkindanil/Eva_Manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=eva
+Group=eva
+Environment=EVA_DATA_DIR=/var/lib/eva-manager
+Environment=EVA_XRAY_BIN=/usr/local/lib/eva-manager/xray/xray
+Environment=XRAY_LOCATION_ASSET=/usr/local/lib/eva-manager/xray
+# Лок iptables-legacy: в /run у пользователя eva прав нет.
+Environment=XTABLES_LOCKFILE=/run/amneziawg/xtables.lock
+# Свои настройки (EVA_LISTEN, EVA_SUB_LISTEN, EVA_SUB_URL…) — здесь, их
+# install.sh не перезаписывает.
+EnvironmentFile=-/etc/eva-manager/env
+ExecStart=/usr/local/lib/eva-manager/eva-manager serve
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+# Панель сама останавливает Xray и процессы AmneziaWG и снимает правила.
+KillMode=mixed
+
+# Сокеты AmneziaWG (/run/amneziawg/awg0.sock — их видит `awg show`).
+RuntimeDirectory=amneziawg
+# Не root, но с правами на сеть: Xray слушает 443, AmneziaWG создаёт
+# интерфейсы и правила NAT (их наследуют дочерние xray, awg-run, iptables).
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/eva-manager
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -30,9 +30,11 @@ type Xray struct {
 	API     *xray.API
 }
 
-// Panel — что серверу нужно от панели: горячее применение конфига.
+// Panel — что серверу нужно от панели: горячее применение конфига и
+// немедленная сверка пользователей с ядрами.
 type Panel interface {
 	ApplyConfig(ctx context.Context) error
+	SyncUsers(ctx context.Context) error
 }
 
 // Server — обработчики HTTP.
@@ -45,11 +47,18 @@ type Server struct {
 	// Token — токен администратора: без него /api/… (кроме health)
 	// отвечает 401. Пустой — API закрыт целиком.
 	Token string
+	// SubURL — внешний адрес подписок из EVA_SUB_URL; пусто — из настроек
+	// или адреса панели.
+	SubURL string
+	// SubListen — EVA_SUB_LISTEN: порт подписок для адреса по умолчанию.
+	SubListen string
 	// AWG — состояние процессов AmneziaWG; nil — недоступно.
 	AWG func() []awg.Status
 	// Web — файлы интерфейса; по умолчанию встроенные.
 	Web fs.FS
 	Log *slog.Logger
+
+	limiter loginLimiter
 }
 
 // Handler — все маршруты панели.
@@ -65,12 +74,16 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/status", s.status)
 	api.HandleFunc("GET /api/xray/logs", s.xrayLogs)
 	api.HandleFunc("POST /api/xray/apply", s.xrayApply)
+	s.routes(api)
 	api.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "нет такого метода API")
 	})
 	// Состояние, журнал ядра (в нём адреса клиентов) и применение
 	// конфига — только с токеном: в Docker панель слушает 0.0.0.0.
 	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /api/setup", s.setupState)
+	mux.HandleFunc("POST /api/setup", s.setup)
+	mux.HandleFunc("POST /api/login", s.login)
 	mux.Handle("/api/", s.requireToken(api))
 	mux.HandleFunc("GET /sub/{token}", s.subscription)
 	mux.Handle("/", s.static())

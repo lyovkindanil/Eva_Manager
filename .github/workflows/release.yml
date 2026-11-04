@@ -1,0 +1,40 @@
+name: Выпуск
+
+# Тег v1.2.3 → выпуск на GitHub с архивами для amd64 и arm64 (панель,
+# Xray, systemd-юнит, install.sh) и checksums.txt — их ставит install.sh.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Интерфейс
+        run: cd web && npm ci && npm run build
+      - name: Архивы
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          for arch in amd64 arm64; do
+            scripts/dist.sh "$v" "$arch" dist
+          done
+          cd dist && sha256sum *.tar.gz > checksums.txt && cat checksums.txt
+      - name: Выпуск
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=
+          case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes $pre
