@@ -279,3 +279,28 @@ func (in Inbound) encryptionString() (string, error) {
 	}
 	return strings.Join(append(parts, pub), "."), nil
 }
+
+// AltPorts — порты для инбаунда, когда 443 занят (другой панелью или
+// веб-сервером): привычные для HTTPS, их реже режут провайдеры.
+var AltPorts = []int{443, 8443, 2053, 2083, 2087, 9443}
+
+// NextPort — первый порт из AltPorts (потом 10443, 10444…), не занятый
+// инбаундами узла и, если busy не nil, другими программами.
+func NextPort(existing []Inbound, busy func(int) bool) int {
+	used := map[int]bool{}
+	for _, in := range existing {
+		used[in.Port] = true
+	}
+	free := func(p int) bool { return !used[p] && (busy == nil || !busy(p)) }
+	for _, p := range AltPorts {
+		if free(p) {
+			return p
+		}
+	}
+	for p := 10443; p < 65535; p++ {
+		if free(p) {
+			return p
+		}
+	}
+	return DefaultPort
+}

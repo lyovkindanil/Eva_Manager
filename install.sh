@@ -8,6 +8,8 @@
 #   --version 1.2.3   версия выпуска (по умолчанию — последняя; или EVA_VERSION)
 #   --file путь.tar.gz  поставить из скачанного архива выпуска
 #   --listen адрес    адрес панели для нового файла настроек (по умолчанию 127.0.0.1:8080)
+#   --sub-port порт   порт подписок для нового файла настроек (по умолчанию 2096)
+#   --yes             не спрашивать: если стандартные порты заняты, взять свободные
 #   --no-start        не запускать службу
 #   --uninstall       удалить программу и службу; данные остаются
 #
@@ -24,6 +26,8 @@ unit=/etc/systemd/system/eva-manager.service
 version=${EVA_VERSION:-}
 file=
 listen=127.0.0.1:8080
+sub_port=2096
+yes=0
 start=1
 uninstall=0
 
@@ -38,9 +42,11 @@ while [ $# -gt 0 ]; do
 	--version) version=${2:?--version: нужна версия}; shift 2 ;;
 	--file) file=${2:?--file: нужен путь к архиву}; shift 2 ;;
 	--listen) listen=${2:?--listen: нужен адрес}; shift 2 ;;
+	--sub-port) sub_port=${2:?--sub-port: нужен порт}; shift 2 ;;
+	--yes | -y) yes=1; shift ;;
 	--no-start) start=0; shift ;;
 	--uninstall) uninstall=1; shift ;;
-	-h | --help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+	-h | --help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 	*) die "неизвестный параметр $1 (см. --help)" ;;
 	esac
 done
@@ -65,6 +71,89 @@ x86_64 | amd64) arch=amd64 ;;
 aarch64 | arm64) arch=arm64 ;;
 *) die "архитектура $(uname -m) не поддерживается (нужна amd64 или arm64)" ;;
 esac
+
+# Занятые порты. Сначала ss, без него — /proc/net (порт в hex, для TCP
+# только слушающие сокеты).
+port_busy() { # tcp|udp порт
+	if command -v ss >/dev/null 2>&1; then
+		if [ "$1" = tcp ]; then
+			[ -n "$(ss -Hltn "sport = :$2" 2>/dev/null)" ]
+		else
+			[ -n "$(ss -Hlun "sport = :$2" 2>/dev/null)" ]
+		fi
+		return
+	fi
+	hex=$(printf ':%04X' "$2")
+	if [ "$1" = tcp ]; then
+		cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk -v h="$hex" '$4 == "0A" && substr($2, length($2) - 4) == h { f = 1 } END { exit !f }'
+	else
+		cat /proc/net/udp /proc/net/udp6 2>/dev/null | awk -v h="$hex" 'substr($2, length($2) - 4) == h { f = 1 } END { exit !f }'
+	fi
+}
+
+# Кто занял порт — для сообщения: «2096 (x-ui)».
+port_owner() { # tcp|udp порт
+	command -v ss >/dev/null 2>&1 || return 0
+	if [ "$1" = tcp ]; then o=$(ss -Hltnp "sport = :$2" 2>/dev/null); else o=$(ss -Hlunp "sport = :$2" 2>/dev/null); fi
+	printf '%s' "$o" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -n1
+}
+
+describe() { # tcp|udp порт
+	who=$(port_owner "$1" "$2")
+	if [ -n "$who" ]; then printf '%s/%s (%s)' "$2" "$1" "$who"; else printf '%s/%s' "$2" "$1"; fi
+}
+
+free_port() { # tcp порт [занятый] — первый свободный от порта, кроме занятого
+	p=$1
+	while port_busy tcp "$p" || [ "$p" = "${2:-}" ]; do p=$((p + 1)); done
+	echo "$p"
+}
+
+# Да или нет с терминала; через curl | sh стандартный ввод занят скриптом,
+# поэтому читаем /dev/tty. Без терминала — ответ по умолчанию.
+ask_yes() { # вопрос
+	[ "$yes" = 1 ] && return 0
+	if ! (exec </dev/tty) 2>/dev/null; then
+		say "$1 — нет терминала для вопроса, беру свободные (или запустите с --listen / --sub-port)."
+		return 0
+	fi
+	printf '%s [Y/n] ' "$1" >/dev/tty
+	read -r ans </dev/tty || ans=
+	case "$ans" in [nNнН]*) return 1 ;; *) return 0 ;; esac
+}
+
+# Новая установка: панель и подписки не должны столкнуться с другой
+# панелью (3x-ui держит подписки на 2096, Hiddify — 443) или wg-easy.
+if [ ! -f "$etc/env" ]; then
+	listen_host=${listen%:*}
+	listen_port=${listen##*:}
+	busy=
+	port_busy tcp "$listen_port" && busy="$busy $(describe tcp "$listen_port")"
+	port_busy tcp "$sub_port" && busy="$busy $(describe tcp "$sub_port")"
+	if [ -n "$busy" ]; then
+		say "Стандартные порты заняты:$busy"
+		if ask_yes "Использовать свободные порты?"; then
+			listen_port=$(free_port "$listen_port")
+			sub_port=$(free_port "$sub_port" "$listen_port")
+			listen="$listen_host:$listen_port"
+			say "Панель — порт $listen_port, подписки — порт $sub_port."
+		else
+			die "установка отменена: освободите порты или задайте свои (--listen 127.0.0.1:8090 --sub-port 2097)"
+		fi
+	fi
+	# Порты подключений панель подбирает сама при их создании —
+	# здесь только предупреждаем.
+	note=
+	port_busy tcp 443 && note="$note $(describe tcp 443)"
+	port_busy udp 51820 && note="$note $(describe udp 51820)"
+	if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Image}}' 2>/dev/null | grep -q wg-easy; then
+		note="$note wg-easy (Docker)"
+	fi
+	if [ -n "$note" ]; then
+		say "Уже заняты:$note. Панель возьмёт для VLESS и AmneziaWG свободные"
+		say "порты и подсеть (вместо 443 — 8443, 2053…; вместо 51820 — следующий)."
+	fi
+fi
 
 # Пакеты: tar и curl для установки, iptables — NAT для клиентов AmneziaWG.
 need=
@@ -138,9 +227,9 @@ if [ ! -f "$etc/env" ]; then
 EVA_LISTEN=$listen
 
 # Подписки для клиентов — отдельным портом наружу, без доступа к панели.
-EVA_SUB_LISTEN=0.0.0.0:2096
+EVA_SUB_LISTEN=0.0.0.0:$sub_port
 # Внешний адрес подписок (можно задать и в Настройках панели):
-#EVA_SUB_URL=https://vpn.example.com:2096
+#EVA_SUB_URL=https://vpn.example.com:$sub_port
 
 # PostgreSQL вместо SQLite:
 #EVA_DATABASE_URL=postgres://eva:пароль@127.0.0.1:5432/eva

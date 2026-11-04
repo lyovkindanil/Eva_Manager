@@ -11,6 +11,7 @@ import (
 	"github.com/lyovkindanil/Eva_Manager/internal/awg"
 	"github.com/lyovkindanil/Eva_Manager/internal/config"
 	"github.com/lyovkindanil/Eva_Manager/internal/store"
+	"github.com/lyovkindanil/Eva_Manager/internal/sysnet"
 )
 
 // awgCmd — интерфейсы AmneziaWG: add | list | del | enable | disable.
@@ -31,8 +32,8 @@ func awgCmd(ctx context.Context, cfg *config.Config, args []string) error {
 		name := fs.String("name", "", "название для клиентов (по умолчанию AmneziaWG)")
 		iface := fs.String("iface", "", "сетевой интерфейс на сервере (по умолчанию awg0, awg1…)")
 		host := fs.String("host", "", "адрес сервера для клиентов (домен или IP)")
-		port := fs.Int("port", 0, "UDP-порт (по умолчанию 51820, у следующих — 51821…)")
-		subnet := fs.String("subnet", "", "подсеть клиентов (по умолчанию 10.8.0.0/24, у следующих — 10.9.0.0/24…)")
+		port := fs.Int("port", 0, "UDP-порт (по умолчанию первый свободный от 51820)")
+		subnet := fs.String("subnet", "", "подсеть клиентов (по умолчанию первая свободная из 10.8.0.0/24, 10.9.0.0/24…)")
 		dns := fs.String("dns", awg.DefaultDNS, "DNS для клиентов")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
@@ -45,7 +46,8 @@ func awgCmd(ctx context.Context, cfg *config.Config, args []string) error {
 			return err
 		}
 		in, err := awg.NewOnNode(store.NewID(), node.ID, awg.Options{
-			Name: *name, Iface: *iface, Host: *host, Subnet: *subnet, DNS: *dns, Port: *port}, existing)
+			Name: *name, Iface: *iface, Host: *host, Subnet: *subnet, DNS: *dns, Port: *port,
+			System: awg.System{UDPBusy: sysnet.UDPBusy, Nets: sysnet.Networks()}}, existing)
 		if err != nil {
 			return err
 		}

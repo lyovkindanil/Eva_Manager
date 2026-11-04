@@ -61,6 +61,15 @@ ssh -L 8080:127.0.0.1:8080 root@ваш-сервер
 подписок задаётся в Настройках панели. Забыли пароль:
 `sudo eva-manager admin passwd`.
 
+**Рядом с другой панелью** (3x-ui, Hiddify, wg-easy). Если порты 8080
+или 2096 уже заняты, скрипт спросит «Стандартные порты заняты.
+Использовать свободные порты?» и возьмёт следующие свободные (без вопроса —
+с `--yes`, свои — `--listen 127.0.0.1:8090 --sub-port 2097`). Порты и
+подсети подключений панель подбирает сама: VLESS — 443, а если он занят, 8443,
+2053, 2083…; AmneziaWG — 51820 или следующий свободный UDP-порт (wg-easy
+тоже занимает 51820) и подсеть, не пересекающаяся с сетями системы. Порт,
+заданный вручную и занятый другой программой, панель не примет.
+
 ## Запуск в Docker
 
 ```sh
@@ -90,7 +99,7 @@ QR-коды для телефона.
 ```sh
 # в Docker — через docker compose exec eva-manager eva-manager …
 eva-manager inbound add --name NL-1 --host vpn.example.com   # VLESS Reality
-eva-manager awg add --name "NL AWG" --host vpn.example.com     # AmneziaWG, UDP 51820
+eva-manager awg add --name "NL AWG" --host vpn.example.com     # AmneziaWG, UDP 51820 или свободный
 eva-manager apply                                              # применить сразу (иначе за 30 с)
 eva-manager user add --name danil --limit-gb 100 --days 30     # ссылки, vpn:// и подписка
 eva-manager user conf --name danil > danil.conf                # файл для AmneziaVPN / AmneziaWG

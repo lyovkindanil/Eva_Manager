@@ -165,7 +165,7 @@ function defaultHost() {
 function AddInbound({ onClose, onDone }: { onClose: () => void; onDone: (r: { applied: boolean; error?: string }) => void }) {
   const [name, setName] = useState("");
   const [host, setHost] = useState(defaultHost());
-  const [port, setPort] = useState("443");
+  const [port, setPort] = useState("");
   const [dest, setDest] = useState("");
   const [enc, setEnc] = useState(false);
   const a = useAction();
@@ -175,7 +175,7 @@ function AddInbound({ onClose, onDone }: { onClose: () => void; onDone: (r: { ap
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
-          a.run(async () => onDone(await api.createInbound({ name: name.trim(), host: host.trim(), port: Number(port), dest: dest.trim(), encryption: enc })));
+          a.run(async () => onDone(await api.createInbound({ name: name.trim(), host: host.trim(), port: port ? Number(port) : 0, dest: dest.trim(), encryption: enc })));
         }}
       >
         <ErrorBanner error={a.error} />
@@ -186,8 +186,8 @@ function AddInbound({ onClose, onDone }: { onClose: () => void; onDone: (r: { ap
           <input required value={host} onChange={(e) => setHost(e.target.value)} placeholder="vpn.example.com" />
         </Field>
         <div className="two">
-          <Field label="Порт (TCP)">
-            <input inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value)} />
+          <Field label="Порт (TCP)" hint="Пусто — 443, а если он занят другой программой, 8443, 2053…">
+            <input inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value)} placeholder="443" />
           </Field>
           <Field label="Сайт маскировки" hint="Пусто — из проверенного списка">
             <input value={dest} onChange={(e) => setDest(e.target.value)} placeholder="www.example.com:443" />
@@ -237,10 +237,10 @@ function AddAWG({ onClose, onDone }: { onClose: () => void; onDone: () => void }
           <input required value={host} onChange={(e) => setHost(e.target.value)} placeholder="vpn.example.com" />
         </Field>
         <div className="two">
-          <Field label="Порт (UDP)" hint="Пусто — 51820 или следующий свободный">
+          <Field label="Порт (UDP)" hint="Пусто — 51820 или следующий свободный в системе">
             <input inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value)} />
           </Field>
-          <Field label="Подсеть клиентов" hint="Пусто — 10.8.0.0/24 или следующая">
+          <Field label="Подсеть клиентов" hint="Пусто — первая свободная от 10.8.0.0/24 (не пересекается с wg-easy и другими VPN)">
             <input value={subnet} onChange={(e) => setSubnet(e.target.value)} />
           </Field>
         </div>

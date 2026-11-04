@@ -14,6 +14,7 @@ import (
 	"github.com/lyovkindanil/Eva_Manager/internal/awg"
 	"github.com/lyovkindanil/Eva_Manager/internal/inbound"
 	"github.com/lyovkindanil/Eva_Manager/internal/store"
+	"github.com/lyovkindanil/Eva_Manager/internal/sysnet"
 )
 
 // SettingSubURL — внешний адрес подписок, заданный в интерфейсе
@@ -504,7 +505,12 @@ func (s *Server) createInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Port == 0 {
-		in.Port = inbound.DefaultPort
+		list, err := s.Store.Inbounds(r.Context(), node.ID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		in.Port = inbound.NextPort(list, sysnet.TCPBusy)
 	}
 	ib, err := inbound.NewVLESSReality(store.NewID(), node.ID, strings.TrimSpace(in.Name), in.Port, strings.TrimSpace(in.Host), strings.TrimSpace(in.Dest))
 	if err != nil {
@@ -529,8 +535,8 @@ func (s *Server) createInbound(w http.ResponseWriter, r *http.Request) {
 }
 
 // portFree — порт не занят другим инбаундом узла (TCP) или интерфейсом
-// AmneziaWG (UDP). Занятость порта чужой программой покажет проверка
-// конфига или запуск процесса.
+// AmneziaWG (UDP) и, для TCP, не слушается другой программой (UDP
+// проверяет awg.NewOnNode).
 func (s *Server) portFree(ctx context.Context, nodeID, proto string, port int, except string) error {
 	if proto == "tcp" {
 		list, err := s.Store.Inbounds(ctx, nodeID)
@@ -541,6 +547,9 @@ func (s *Server) portFree(ctx context.Context, nodeID, proto string, port int, e
 			if in.Port == port && in.ID != except {
 				return fmt.Errorf("порт %d уже у инбаунда %q", port, in.Name)
 			}
+		}
+		if sysnet.TCPBusy(port) {
+			return fmt.Errorf("порт %d занят другой программой (другой панелью или веб-сервером) — укажите другой или оставьте поле пустым, панель подберёт свободный", port)
 		}
 		return nil
 	}
@@ -641,6 +650,11 @@ func (s *Server) listAWG(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// awgSystem — занятые в системе UDP-порты и подсети для новых интерфейсов.
+func awgSystem() awg.System {
+	return awg.System{UDPBusy: sysnet.UDPBusy, Nets: sysnet.Networks()}
+}
+
 type awgInput struct {
 	Name   string `json:"name"`
 	Host   string `json:"host"`
@@ -666,7 +680,7 @@ func (s *Server) createAWG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a, err := awg.NewOnNode(store.NewID(), node.ID, awg.Options{Name: strings.TrimSpace(in.Name), Host: strings.TrimSpace(in.Host),
-		Port: in.Port, Subnet: strings.TrimSpace(in.Subnet), DNS: strings.TrimSpace(in.DNS)}, existing)
+		Port: in.Port, Subnet: strings.TrimSpace(in.Subnet), DNS: strings.TrimSpace(in.DNS), System: awgSystem()}, existing)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

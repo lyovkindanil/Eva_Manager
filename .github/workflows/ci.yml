@@ -148,9 +148,15 @@ jobs:
       # Настоящий systemd раннера: служба от eva с правами на сеть, токен
       # первого запуска, мастер настройки, AmneziaWG с NAT, обновление
       # поверх и удаление с сохранением данных.
+      # Порт подписок занят «другой панелью» (у 3x-ui он тоже 2096):
+      # без терминала install.sh берёт следующий свободный.
       - name: Установка
         run: |
-          sudo sh install.sh --file "$RUNNER_TEMP/dist/eva-manager_0.0.0-ci_linux_amd64.tar.gz"
+          python3 -m http.server 2096 --bind 0.0.0.0 >/dev/null 2>&1 &
+          sleep 1
+          sudo sh install.sh --file "$RUNNER_TEMP/dist/eva-manager_0.0.0-ci_linux_amd64.tar.gz" </dev/null | tee install.log
+          grep -q 'Стандартные порты заняты: 2096/tcp' install.log
+          sudo grep -q '^EVA_SUB_LISTEN=0.0.0.0:2097$' /etc/eva-manager/env
           systemctl status eva-manager --no-pager
           test "$(ps -o user= -p "$(systemctl show -p MainPID --value eva-manager)")" = eva
           tok=$(sudo eva-manager token)

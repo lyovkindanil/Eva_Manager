@@ -10,6 +10,7 @@ import (
 	"github.com/lyovkindanil/Eva_Manager/internal/config"
 	"github.com/lyovkindanil/Eva_Manager/internal/inbound"
 	"github.com/lyovkindanil/Eva_Manager/internal/store"
+	"github.com/lyovkindanil/Eva_Manager/internal/sysnet"
 )
 
 // inboundCmd — управление инбаундами: add | list | del. Изменения пишутся
@@ -29,7 +30,7 @@ func inboundCmd(ctx context.Context, cfg *config.Config, args []string) error {
 		fs := flag.NewFlagSet("inbound add", flag.ContinueOnError)
 		name := fs.String("name", "", "имя инбаунда, например NL-1")
 		host := fs.String("host", "", "адрес сервера для ссылок (домен или IP)")
-		port := fs.Int("port", inbound.DefaultPort, "порт")
+		port := fs.Int("port", 0, "порт (по умолчанию 443, если занят — 8443, 2053…)")
 		dest := fs.String("dest", "", "сайт маскировки «хост:443» (по умолчанию из проверенного списка)")
 		enc := fs.Bool("encryption", false, "включить VLESS Encryption (mlkem768x25519plus, native/0rtt/600s)")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -37,6 +38,22 @@ func inboundCmd(ctx context.Context, cfg *config.Config, args []string) error {
 		}
 		if *name == "" || *host == "" {
 			return errors.New("нужны --name и --host")
+		}
+		existing, err := st.Inbounds(ctx, node.ID)
+		if err != nil {
+			return err
+		}
+		if *port == 0 {
+			*port = inbound.NextPort(existing, sysnet.TCPBusy)
+		} else {
+			for _, e := range existing {
+				if e.Port == *port {
+					return fmt.Errorf("порт %d уже у инбаунда %q", *port, e.Name)
+				}
+			}
+			if sysnet.TCPBusy(*port) {
+				return fmt.Errorf("порт %d занят другой программой (другой панелью или веб-сервером): укажите другой --port или не указывайте его", *port)
+			}
 		}
 		in, err := inbound.NewVLESSReality(store.NewID(), node.ID, *name, *port, *host, *dest)
 		if err != nil {
