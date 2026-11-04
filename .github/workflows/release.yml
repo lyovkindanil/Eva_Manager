@@ -2,12 +2,20 @@ name: Выпуск
 
 # Тег v1.2.3 → выпуск на GitHub с архивами для amd64 и arm64 (панель,
 # Xray, systemd-юнит, install.sh) и checksums.txt — их ставит install.sh.
+# Тег можно запушить из git или создать прямо на GitHub: Releases → Draft a
+# new release → тег v1.2.3 → Publish; архивы добавятся к этому выпуску.
 on:
   push:
     tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: write
+
+# Тег, запушенный вместе с выпуском, запускает оба события — сборка одна.
+concurrency:
+  group: release-${{ github.ref_name }}
 
 jobs:
   release:
@@ -35,6 +43,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pre=
-          case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes $pre
+          # Выпуск, созданный на GitHub вручную, уже есть — дополняем его.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            pre=
+            case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; esac
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes $pre
+          fi
