@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lyovkindanil/Eva_Manager/internal/awg"
 	"github.com/lyovkindanil/Eva_Manager/internal/db"
 	"github.com/lyovkindanil/Eva_Manager/internal/db/dbtest"
 	"github.com/lyovkindanil/Eva_Manager/internal/inbound"
@@ -118,6 +119,69 @@ func TestSubscription(t *testing.T) {
 		}
 		if got := r.Header.Get("Profile-Title"); got != "bob" {
 			t.Errorf("ascii profile-title: %q", got)
+		}
+	})
+}
+
+// AmneziaWG в подписке — ключом vpn://: его разбирает парсер VPN4Eva
+// (через ParseServer, как строку подписки), с адресом пира пользователя.
+func TestSubscriptionAWG(t *testing.T) {
+	dbtest.Each(t, func(t *testing.T, d *db.DB) {
+		ctx := context.Background()
+		ts := newServer(t, d, builtWeb)
+		st := store.New(d)
+		node, err := st.EnsureLocalNode(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		vless, err := inbound.NewVLESSReality(store.NewID(), node.ID, "NL-1", 443, "vpn.example.com", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.CreateInbound(ctx, vless); err != nil {
+			t.Fatal(err)
+		}
+		in, err := awg.New(store.NewID(), node.ID, "NL AWG", "awg0", 0, "vpn.example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.CreateAWG(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+		u, err := st.CreateUser(ctx, node.ID, "Данил", "", 0, time.Time{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, body := get(t, ts.URL+"/sub/"+u.SubToken)
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		links := strings.Split(string(decoded), "\n")
+		if len(links) != 2 || !strings.HasPrefix(links[1], "vpn://") {
+			t.Fatalf("%q", links)
+		}
+		for _, l := range links {
+			if !vpnparser.IsServerLink(l) {
+				t.Fatalf("клиент не считает строку сервером: %s", l)
+			}
+		}
+		s, err := vpnparser.ParseServer(links[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Protocol != vpnparser.ProtoAmneziaWG || s.Name != "Данил · NL AWG" || s.Host != "vpn.example.com" ||
+			s.WireGuard.Address[0].String() != "10.8.0.2/32" {
+			t.Fatalf("%+v %+v", s, s.WireGuard)
+		}
+		// Выключенный интерфейс из подписки пропадает.
+		if err := st.SetAWGEnabled(ctx, in.ID, false); err != nil {
+			t.Fatal(err)
+		}
+		_, body = get(t, ts.URL+"/sub/"+u.SubToken)
+		decoded, _ = base64.StdEncoding.DecodeString(strings.TrimSpace(body))
+		if strings.Contains(string(decoded), "vpn://") {
+			t.Fatalf("%q", decoded)
 		}
 	})
 }

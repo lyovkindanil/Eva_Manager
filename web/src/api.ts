@@ -20,10 +20,20 @@ export type XrayStatus = {
   uptime_s?: number;
 };
 
+// Интерфейс AmneziaWG: процесс awg-run на сервере.
+export type AWGStatus = {
+  id: string;
+  name: string;
+  iface: string;
+  running: boolean;
+  problem?: string;
+};
+
 export type Status = {
   version: string;
   database: { dialect: "sqlite" | "postgres"; schema: number };
   xray: XrayStatus;
+  awg: AWGStatus[];
   nodes: Node[];
 };
 

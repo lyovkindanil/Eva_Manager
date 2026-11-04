@@ -16,7 +16,7 @@ import (
 // базы за один тик сборщика (30 секунд), перезапуск не нужен.
 func userCmd(ctx context.Context, cfg *config.Config, args []string) error {
 	if len(args) == 0 {
-		return errors.New("нужна подкоманда: add | list | show | del | enable | disable | reset-traffic\n" + usage)
+		return errors.New("нужна подкоманда: add | list | show | conf | del | enable | disable | reset-traffic\n" + usage)
 	}
 	st, node, closeDB, err := openStore(ctx, cfg)
 	if err != nil {
@@ -76,6 +76,36 @@ func userCmd(ctx context.Context, cfg *config.Config, args []string) error {
 			u.Name, u.Status, u.UUID, humanBytes(u.TrafficUsed), humanBytes(u.TrafficLimit),
 			u.ExpiresAt.Format("2006-01-02 15:04"), u.Note)
 		return printUserAccess(ctx, st, cfg, u)
+	case "conf":
+		fs := flag.NewFlagSet("user conf", flag.ContinueOnError)
+		name := fs.String("name", "", "имя пользователя")
+		iface := fs.String("awg", "", "интерфейс AmneziaWG (по умолчанию первый)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		u, err := st.UserByName(ctx, *name)
+		if err != nil {
+			return fmt.Errorf("пользователь %q: %w", *name, err)
+		}
+		awgs, err := st.UserAWGs(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		for _, a := range awgs {
+			if *iface != "" && a.Interface.Name != *iface && a.Interface.Iface != *iface {
+				continue
+			}
+			conf, err := a.Interface.ClientConf(a.Peer, u.Name+" · "+a.Interface.Name)
+			if err != nil {
+				return err
+			}
+			fmt.Print(conf)
+			return nil
+		}
+		if *iface != "" {
+			return fmt.Errorf("у пользователя нет включённого интерфейса AmneziaWG %q", *iface)
+		}
+		return errors.New("у пользователя нет включённого интерфейса AmneziaWG")
 	case "del", "enable", "disable", "reset-traffic":
 		u, err := userByNameFlag(ctx, st, args[1:])
 		if err != nil {
@@ -126,8 +156,21 @@ func printUserAccess(ctx context.Context, st *store.Store, cfg *config.Config, u
 		}
 		fmt.Printf("  %s\n", link)
 	}
-	if len(inbounds) == 0 {
-		fmt.Println("  (включённых инбаундов нет — добавьте: eva-manager inbound add ...)")
+	awgs, err := st.UserAWGs(ctx, u.ID)
+	if err != nil {
+		return err
+	}
+	for _, a := range awgs {
+		key, err := a.Interface.VPNKey(a.Peer, u.Name+" · "+a.Interface.Name)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("  %s\n", key)
+	}
+	if len(inbounds)+len(awgs) == 0 {
+		fmt.Println("  (включённых инбаундов нет — добавьте: eva-manager inbound add ... или eva-manager awg add ...)")
+	} else if len(awgs) > 0 {
+		fmt.Printf("  (файл AmneziaWG для AmneziaVPN/AmneziaWG: eva-manager user conf --name %s)\n", u.Name)
 	}
 	fmt.Printf("Подписка: %s\n", cfg.SubscriptionURL(u.SubToken))
 	if cfg.SubURL == "" {

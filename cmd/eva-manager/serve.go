@@ -7,10 +7,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
+	"github.com/lyovkindanil/Eva_Manager/internal/awg"
 	"github.com/lyovkindanil/Eva_Manager/internal/buildinfo"
 	"github.com/lyovkindanil/Eva_Manager/internal/config"
 	"github.com/lyovkindanil/Eva_Manager/internal/db"
@@ -40,7 +43,7 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	core := &supervisor{log: log}
 	x := server.Xray{Problem: core.problem}
-	var serverPanel server.Panel // nil — Xray не найден, применение недоступно
+	pn := &panel.Panel{Store: st, NodeID: node.ID, Log: log}
 	if bin, err := xray.FindBin(cfg.XrayBin); err != nil {
 		core.setProblem("Xray не найден: укажите путь в EVA_XRAY_BIN или установите xray в PATH")
 		log.Warn("xray не найден, панель работает без ядра", "err", err)
@@ -66,10 +69,9 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		core.cfg = base
 		log.Info("xray", "version", v, "bin", bin)
 
-		// Сборщик: сверяет пользователей с ядром, забирает трафик,
-		// применяет лимиты и сроки. Supervisor как Core даёт горячее
-		// применение конфига без перезапуска панели.
-		pn := &panel.Panel{Store: st, API: x.API, Core: core, APIAddr: cfg.XrayAPI, NodeID: node.ID, Log: log}
+		// Supervisor как Core даёт горячее применение конфига без
+		// перезапуска панели.
+		pn.API, pn.Core, pn.APIAddr = x.API, core, cfg.XrayAPI
 		core.onStart = func(ctx context.Context) {
 			if err := pn.SyncUsers(ctx); err != nil {
 				log.Warn("пользователи после запуска ядра", "err", err)
@@ -80,16 +82,41 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 				log.Warn("трафик перед остановкой ядра", "err", err)
 			}
 		}
-		core.wg.Add(2)
+		core.wg.Add(1)
 		go core.run(ctx)
-		go func() {
-			defer core.wg.Done()
-			pn.Run(ctx)
-		}()
-		serverPanel = pn
 	}
 
+	// AmneziaWG: по процессу `eva-manager awg-run` на интерфейс.
+	var mgr *awg.Manager
+	if runtime.GOOS == "linux" {
+		self, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		// eva-awg рядом — копия бинарника с CAP_NET_ADMIN (так в
+		// Docker-образе): права на сеть получает только процесс
+		// интерфейса, сама панель работает без них.
+		if p := filepath.Join(filepath.Dir(self), "eva-awg"); fileExists(p) {
+			self = p
+		}
+		mgr = &awg.Manager{Bin: self, SocketDir: cfg.AWGSocketDir, Log: log, OnUp: pn.PushAWG}
+		pn.AWG = mgr
+		defer mgr.Stop()
+	}
+
+	// Сборщик: сверяет пользователей с ядрами, забирает трафик,
+	// применяет лимиты и сроки.
+	core.wg.Add(1)
+	go func() {
+		defer core.wg.Done()
+		pn.Run(ctx)
+	}()
+	var serverPanel server.Panel = pn
+
 	srv := &server.Server{DB: d, Store: st, Xray: x, Panel: serverPanel, Token: token, Log: log}
+	if mgr != nil {
+		srv.AWG = mgr.Statuses
+	}
 	servers := []*http.Server{newHTTP(srv.Handler())}
 	addrs := []string{cfg.Listen}
 	if cfg.SubListen != "" {
@@ -123,6 +150,18 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 	}
 	core.stop()
+	if mgr != nil {
+		// Без Xray трафик AmneziaWG перед остановкой забрать некому:
+		// supervisor делает это только вместе с ядром.
+		if core.proc == nil {
+			cctx, ccancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if e := pn.CollectOnce(cctx); e != nil {
+				log.Warn("трафик AmneziaWG перед остановкой", "err", e)
+			}
+			ccancel()
+		}
+		mgr.Stop()
+	}
 	if errors.Is(err, http.ErrServerClosed) {
 		err = nil
 	}
@@ -290,4 +329,9 @@ func (s *supervisor) stop() {
 		cancel()
 	}
 	s.wg.Wait()
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular()
 }

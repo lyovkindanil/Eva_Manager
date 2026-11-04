@@ -35,6 +35,9 @@ type Config struct {
 	// из него CLI печатает ссылку на подписку. Пусто — адрес из SubListen
 	// или Listen.
 	SubURL string
+	// AWGSocketDir — каталог UAPI-сокетов интерфейсов AmneziaWG; по
+	// умолчанию /var/run/amneziawg — там их находит `awg show`.
+	AWGSocketDir string
 	// ShutdownTimeout — сколько ждать завершения запросов при остановке.
 	ShutdownTimeout time.Duration
 }
@@ -48,6 +51,7 @@ const (
 	EnvXrayAPI     = "EVA_XRAY_API"
 	EnvSubListen   = "EVA_SUB_LISTEN"
 	EnvSubURL      = "EVA_SUB_URL"
+	EnvAWGSockets  = "EVA_AWG_SOCKET_DIR"
 	// EnvToken — токен администратора для команд CLI вместо файла.
 	EnvToken = "EVA_TOKEN"
 )
@@ -69,6 +73,7 @@ func load(getenv func(string) string) (*Config, error) {
 		XrayAPI:         or(getenv(EnvXrayAPI), "127.0.0.1:10085"),
 		SubListen:       getenv(EnvSubListen),
 		SubURL:          strings.TrimRight(getenv(EnvSubURL), "/"),
+		AWGSocketDir:    or(getenv(EnvAWGSockets), "/var/run/amneziawg"),
 		ShutdownTimeout: 10 * time.Second,
 	}
 	if c.DatabaseURL == "" {

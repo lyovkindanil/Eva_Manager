@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, token, Unauthorized, type Status, type XrayStatus } from "./api";
+import { api, token, Unauthorized, type AWGStatus, type Status, type XrayStatus } from "./api";
 import { dbName, duration } from "./format";
 import { applyTheme, savedTheme, type Theme } from "./theme";
 import { Wordmark } from "./Wordmark";
@@ -72,6 +72,9 @@ export function App() {
           <>
             <div className="grid">
               <XrayCard x={status.xray} />
+              {(status.awg ?? []).map((a) => (
+                <AWGCard key={a.id} a={a} />
+              ))}
               <div className="card">
                 <span className="label">База данных</span>
                 <span className="value">{dbName(status.database.dialect)}</span>
@@ -115,6 +118,21 @@ function XrayCard({ x }: { x: XrayStatus }) {
       <span className="value">{x.version ?? "—"}</span>
       {ok && x.uptime_s !== undefined && <span className="muted">Работает {duration(x.uptime_s)}</span>}
       {x.problem && <span className="problem">{x.problem}</span>}
+    </div>
+  );
+}
+
+function AWGCard({ a }: { a: AWGStatus }) {
+  const ok = a.running && !a.problem;
+  return (
+    <div className={`card ${ok ? "" : "warn"}`}>
+      <div className="card-head">
+        <span className="label">AmneziaWG</span>
+        <span className={`pill ${ok ? "on" : "off"}`}>{ok ? "Работает" : a.running ? "Запущен с ошибкой" : "Остановлен"}</span>
+      </div>
+      <span className="value">{a.name}</span>
+      <span className="muted">Интерфейс {a.iface}</span>
+      {a.problem && <span className="problem">{a.problem}</span>}
     </div>
   );
 }

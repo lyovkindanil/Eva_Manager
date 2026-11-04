@@ -1,6 +1,6 @@
-// Package panel связывает базу и ядро Xray: держит в работающем ядре
-// нужных пользователей, раз в 30 секунд забирает их трафик и применяет
-// лимиты и сроки.
+// Package panel связывает базу с ядрами узла — Xray и AmneziaWG: держит в
+// них нужных пользователей, раз в 30 секунд забирает их трафик и
+// применяет лимиты и сроки.
 package panel
 
 import (
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/lyovkindanil/Eva_Manager/internal/inbound"
@@ -34,10 +35,12 @@ type Core interface {
 	Apply(ctx context.Context, config []byte) error
 }
 
-// Panel — локальный узел: база панели плюс работающее ядро.
+// Panel — локальный узел: база панели плюс работающие ядра — Xray и
+// интерфейсы AmneziaWG.
 type Panel struct {
 	Store *store.Store
-	API   XrayAPI
+	// API — gRPC Xray; nil — Xray не найден, работает только AmneziaWG.
+	API XrayAPI
 	// Core — горячее применение конфига; nil — недоступно (ядром
 	// управляет кто-то другой).
 	Core Core
@@ -45,8 +48,13 @@ type Panel struct {
 	APIAddr string
 	NodeID  string
 	Log     *slog.Logger
+	// AWG — процессы AmneziaWG; nil — AmneziaWG недоступен (не Linux).
+	AWG AWGRuntime
 	// Now — часы (в тестах подменяются); nil — time.Now.
 	Now func() time.Time
+
+	awgMu   sync.Mutex
+	awgSeen map[string]*awgCounters
 }
 
 func (p *Panel) now() time.Time {
@@ -69,8 +77,11 @@ func (p *Panel) log() *slog.Logger {
 // При успехе сверяет пользователей с новым ядром (инбаунды могли
 // появиться или исчезнуть).
 func (p *Panel) ApplyConfig(ctx context.Context) error {
-	if p.Core == nil {
+	if p.Core == nil && p.AWG == nil {
 		return errors.New("ядро не управляется панелью, применение недоступно")
+	}
+	if p.Core == nil {
+		return p.syncAWG(ctx)
 	}
 	inbounds, err := p.Store.Inbounds(ctx, p.NodeID)
 	if err != nil {
@@ -89,6 +100,9 @@ func (p *Panel) ApplyConfig(ctx context.Context) error {
 		p.log().Warn("версия конфига не записана", "err", err)
 	}
 	if applyErr != nil {
+		if p.AWG != nil {
+			return errors.Join(applyErr, p.syncAWG(ctx))
+		}
 		return applyErr
 	}
 	p.log().Info("конфиг применён к ядру", "inbounds", len(inbounds))
@@ -99,12 +113,22 @@ func (p *Panel) ApplyConfig(ctx context.Context) error {
 // добавляет активных, убирает остальных (выключенных, истёкших, с
 // исчерпанным лимитом, удалённых или потерявших доступ к инбаунду).
 // Идемпотентно: ответы Xray «уже есть» и «не найден» — не ошибки.
+// То же для пиров AmneziaWG; заодно запускает и останавливает процессы
+// интерфейсов по базе.
 func (p *Panel) SyncUsers(ctx context.Context) error {
+	var errs []error
+	if p.AWG != nil {
+		if err := p.syncAWG(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if p.API == nil {
+		return errors.Join(errs...)
+	}
 	inbounds, err := p.Store.Inbounds(ctx, p.NodeID)
 	if err != nil {
-		return err
+		return errors.Join(append(errs, err)...)
 	}
-	var errs []error
 	for _, in := range inbounds {
 		if !in.Enabled {
 			continue
@@ -155,9 +179,18 @@ func (p *Panel) syncInbound(ctx context.Context, in inbound.Inbound) error {
 // (со сбросом счётчиков), записать в базу, пересчитать статусы и при
 // изменениях сразу сверить пользователей с ядром.
 func (p *Panel) CollectOnce(ctx context.Context) error {
-	traffic, err := p.API.UserTraffic(ctx, true)
-	if err != nil {
-		return err
+	traffic := map[string]xray.Traffic{}
+	var collectErr error
+	if p.API != nil {
+		t, err := p.API.UserTraffic(ctx, true)
+		if err != nil {
+			return err
+		}
+		traffic = t
+	}
+	if p.AWG != nil {
+		// Ошибка одного интерфейса не мешает учесть остальное.
+		collectErr = p.collectAWG(ctx, traffic)
 	}
 	users, err := p.Store.Users(ctx)
 	if err != nil {
@@ -193,9 +226,9 @@ func (p *Panel) CollectOnce(ctx context.Context) error {
 		}
 	}
 	if changed {
-		return p.SyncUsers(ctx)
+		return errors.Join(collectErr, p.SyncUsers(ctx))
 	}
-	return nil
+	return collectErr
 }
 
 // Run — цикл сборщика до отмены ctx: SyncUsers при старте (с повторами,

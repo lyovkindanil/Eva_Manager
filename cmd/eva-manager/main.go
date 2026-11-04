@@ -1,7 +1,8 @@
-// Команда eva-manager — веб-панель для серверов на Xray-core.
+// Команда eva-manager — веб-панель для серверов на Xray-core и AmneziaWG.
 //
 //	eva-manager serve        запустить панель (по умолчанию)
 //	eva-manager apply        применить конфиг из базы к работающему ядру
+//	eva-manager awg-run      процесс интерфейса AmneziaWG (запускает панель)
 //	eva-manager migrate      применить миграции базы и выйти
 //	eva-manager xray-config  напечатать базовый конфиг Xray
 //	eva-manager version      версия панели
@@ -48,6 +49,8 @@ func run(ctx context.Context, cmd string, log *slog.Logger) error {
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
+	case "awg-run":
+		return awgRunCmd(ctx, os.Args[2:])
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -67,6 +70,8 @@ func run(ctx context.Context, cmd string, log *slog.Logger) error {
 		return inboundCmd(ctx, cfg, os.Args[2:])
 	case "user":
 		return userCmd(ctx, cfg, os.Args[2:])
+	case "awg":
+		return awgCmd(ctx, cfg, os.Args[2:])
 	case "apply":
 		return applyCmd(ctx, cfg)
 	case "migrate":
@@ -105,8 +110,9 @@ const usage = `Использование: eva-manager <команда>
 
   serve          запустить панель (по умолчанию)
   inbound        инбаунды: add | list | del
-  user           пользователи: add | list | show | del | enable | disable | reset-traffic
-  apply          применить конфиг из базы к работающему ядру
+  awg            AmneziaWG: add | list | del | enable | disable
+  user           пользователи: add | list | show | conf | del | enable | disable | reset-traffic
+  apply          применить конфиг из базы к работающему ядру и AmneziaWG
   token          токен администратора для API и веб-интерфейса
   migrate        применить миграции базы и выйти
   xray-config    напечатать конфиг Xray (из базы)
@@ -120,5 +126,6 @@ const usage = `Использование: eva-manager <команда>
   EVA_XRAY_API      адрес gRPC API Xray, только loopback (по умолчанию 127.0.0.1:10085)
   EVA_SUB_LISTEN    отдельный адрес только для подписок, например 0.0.0.0:2096
   EVA_SUB_URL       внешний адрес подписок, например https://vpn.example.com:2096
+  EVA_AWG_SOCKET_DIR каталог UAPI-сокетов AmneziaWG (по умолчанию /var/run/amneziawg, как у awg show)
   EVA_TOKEN         токен администратора для eva-manager apply (по умолчанию EVA_DATA_DIR/admin.token)
 `

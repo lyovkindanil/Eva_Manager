@@ -1,5 +1,5 @@
 #!/bin/sh
-# Обновляет копии парсера ссылок vless:// из клиента VPN4Eva, которыми
+# Обновляет копии парсера серверов (vless://, .conf и vpn://) из клиента VPN4Eva, которыми
 # тесты панели проверяют сгенерированные ссылки (internal/testutil/vpn4eva).
 #
 #   scripts/sync-vpn4eva-parser.sh [коммит]
@@ -12,6 +12,10 @@
 #      с доступом к репозиторию).
 #
 # Что копируется:
+#   - core/internal/profile/{server,wireguard,amnezia,hysteria2}.go —
+#     целиком: разбор сервера любого протокола, в том числе .conf
+#     AmneziaWG и ключей vpn://;
+#   - из core/internal/profile/profile.go — только parsePrefix;
 #   - core/internal/profile/vless.go — целиком, с переписанным импортом
 #     vlessenc (в апстриме sing-box этого пакета нет, VPN4Eva собирает
 #     его своими патчами, поэтому оригинальный путь недоступен панели);
@@ -51,6 +55,20 @@ hdr() { # путь исходника в репозитории VPN4Eva
 	git -C "$src" show "$commit:core/internal/profile/vless.go" |
 		sed 's|github.com/sagernet/sing-box/common/vlessenc|github.com/lyovkindanil/Eva_Manager/internal/testutil/vpn4eva/vlessenc|'
 } >"$dst/profile/vless.go"
+
+for f in server wireguard amnezia hysteria2; do
+	{
+		hdr "core/internal/profile/$f.go"
+		git -C "$src" show "$commit:core/internal/profile/$f.go"
+	} >"$dst/profile/$f.go"
+done
+# Из profile.go — только parsePrefix (остальное — профиль клиента).
+{
+	hdr "core/internal/profile/profile.go (только parsePrefix)"
+	printf 'package profile\n\nimport (\n\t"net/netip"\n\t"strings"\n)\n\n'
+	git -C "$src" show "$commit:core/internal/profile/profile.go" |
+		awk '/^\/\/ parsePrefix /{f=1} f; f && /^}/{f=0}'
+} >"$dst/profile/prefix.go"
 
 # vlessenc: только разбор строки encryption (Config и ParseClient) —
 # от комментария «// Config —» до комментария «// NewClient».
