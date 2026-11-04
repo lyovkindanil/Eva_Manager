@@ -289,3 +289,16 @@ func TestValidate(t *testing.T) {
 		t.Errorf("хороший инбаунд отвергнут: %v", err)
 	}
 }
+
+func TestNextPort(t *testing.T) {
+	busy := func(p int) bool { return p == 443 || p == 2053 }
+	if p := NextPort(nil, nil); p != 443 {
+		t.Errorf("пусто: %d", p)
+	}
+	if p := NextPort(nil, busy); p != 8443 {
+		t.Errorf("443 занят: %d", p)
+	}
+	if p := NextPort([]Inbound{{Port: 8443}}, busy); p != 2083 {
+		t.Errorf("443, 2053 заняты, 8443 у инбаунда: %d", p)
+	}
+}
