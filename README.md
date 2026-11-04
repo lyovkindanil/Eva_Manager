@@ -8,10 +8,10 @@
 для клиента [VPN4Eva](https://github.com/lyovkindanil/Vpn4Eva) и других
 клиентов с форматом v2rayN, ключи `vpn://` для приложения AmneziaVPN.
 
-> Статус: **этап 2 выполнен**. Есть VLESS Reality (с VLESS Encryption по
+> Статус: **этап 3 выполнен**. Есть VLESS Reality (с VLESS Encryption по
 > желанию) и AmneziaWG 2.0, пользователи с трафиком, лимитами и сроками,
-> подписки. Управление пока из командной строки; экраны и установщик —
-> этап 3. План: [docs/plan.md](docs/plan.md).
+> подписки, веб-интерфейс со входом по паролю и QR-кодами, установка одной
+> командой. План: [docs/plan.md](docs/plan.md).
 
 Главное отличие от 3x-ui — надёжность: конфиг Xray и ссылки строятся из
 одной модели, каждая ссылка в CI проверяется парсером VPN4Eva и настоящим
@@ -30,6 +30,37 @@
 
 Подробнее: [docs/architecture.md](docs/architecture.md).
 
+## Установка на сервер
+
+Ubuntu, Debian и другие Linux с systemd, amd64 или arm64:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lyovkindanil/Eva_Manager/main/install.sh | sudo sh
+```
+
+Скрипт скачивает последний выпуск (сверяет SHA-256), ставит панель и Xray
+в `/usr/local/lib/eva-manager`, создаёт пользователя `eva` и службу
+`eva-manager`, включает `ip_forward` для AmneziaWG и печатает токен первого
+входа. Служба работает не от root: ей даны только права на сеть
+(`CAP_NET_ADMIN`, `CAP_NET_BIND_SERVICE`). Повторный запуск обновляет
+программу, данные (`/var/lib/eva-manager`) и настройки
+(`/etc/eva-manager/env`) остаются. Параметры — `--version 1.2.3`,
+`--file архив.tar.gz` (архив из `make dist`), `--no-start`, `--uninstall`:
+`curl … | sudo sh -s -- --version 1.2.3`.
+
+Панель слушает `127.0.0.1:8080` — откройте её через SSH-туннель:
+
+```sh
+ssh -L 8080:127.0.0.1:8080 root@ваш-сервер
+# и в браузере http://127.0.0.1:8080
+```
+
+При первом входе панель спросит токен (`sudo eva-manager token`) и
+предложит задать имя и пароль администратора. Подписки отдаются наружу на
+порту 2096 (`EVA_SUB_LISTEN` в `/etc/eva-manager/env`); внешний адрес
+подписок задаётся в Настройках панели. Забыли пароль:
+`sudo eva-manager admin passwd`.
+
 ## Запуск в Docker
 
 ```sh
@@ -37,13 +68,8 @@ git clone https://github.com/lyovkindanil/Eva_Manager && cd Eva_Manager
 docker compose up -d
 ```
 
-Панель слушает только `127.0.0.1:8080`: до появления входа по паролю
-(этап 3) открывайте её через SSH-туннель:
-
-```sh
-ssh -L 8080:127.0.0.1:8080 root@ваш-сервер
-# и в браузере http://127.0.0.1:8080
-```
+Панель слушает только `127.0.0.1:8080` (туннель — как выше), токен первого
+входа: `docker compose exec eva-manager eva-manager token`.
 
 AmneziaWG в контейнере требует `cap_add: [NET_ADMIN]` и `/dev/net/tun` —
 они уже в `docker-compose.yml`. Права получает только процесс AmneziaWG
@@ -54,6 +80,13 @@ AmneziaWG в контейнере требует `cap_add: [NET_ADMIN]` и `/dev
 
 ## Первые шаги
 
+В веб-интерфейсе: «Подключения» → добавить VLESS Reality и (или)
+AmneziaWG, «Пользователи» → добавить пользователя. На странице пользователя —
+ссылка подписки, ссылки каждого подключения, файл `.conf` для AmneziaWG и
+QR-коды для телефона.
+
+То же из командной строки:
+
 ```sh
 # в Docker — через docker compose exec eva-manager eva-manager …
 eva-manager inbound add --name NL-1 --host vpn.example.com   # VLESS Reality
@@ -63,7 +96,8 @@ eva-manager user add --name danil --limit-gb 100 --days 30     # ссылки, v
 eva-manager user conf --name danil > danil.conf                # файл для AmneziaVPN / AmneziaWG
 ```
 
-На сервере откройте порты инбаундов (TCP) и AmneziaWG (UDP).
+На сервере откройте порты инбаундов (TCP), AmneziaWG (UDP) и подписок
+(TCP 2096).
 
 ## Сборка
 
@@ -74,6 +108,7 @@ make build   # интерфейс + bin/eva-manager
 make xray    # Xray из XRAY_VERSION → bin/xray (SHA-256 сверяется)
 make run     # панель с данными в bin/data
 make test    # тесты
+make dist    # архивы выпуска для install.sh → bin/dist
 make docker  # образ
 ```
 
@@ -106,15 +141,18 @@ sudo -E env "PATH=$PATH" go test -run 'TestRun$|TestAWGServer' ./internal/awg/ .
 | `EVA_AWG_SOCKET_DIR` | `/var/run/amneziawg` | UAPI-сокеты интерфейсов AmneziaWG (там их видит `awg show`) |
 | `EVA_TOKEN` | из `$EVA_DATA_DIR/admin.token` | Токен администратора для `eva-manager apply` |
 
-API панели (`/api/…`, кроме `/api/health`) требует заголовок
-`Authorization: Bearer <токен>`. Токен создаётся при первом запуске в
-`$EVA_DATA_DIR/admin.token` (права 0600), напечатать его —
-`eva-manager token`; веб-интерфейс спрашивает его при входе. До входа по
-паролю (этап 3) это единственная защита API, поэтому подписки лучше
-открывать наружу через `EVA_SUB_LISTEN`, а саму панель держать на 127.0.0.1.
+Вход в веб-интерфейс — по имени и паролю (argon2id), сессия 14 дней в
+cookie `HttpOnly`, `SameSite=Strict`; после 5 неудачных попыток за 5 минут
+вход с этого адреса блокируется. Для скриптов API (`/api/…`) принимает и
+заголовок `Authorization: Bearer <токен>`: токен создаётся при первом
+запуске в `$EVA_DATA_DIR/admin.token` (права 0600), напечатать его —
+`eva-manager token`. Им же подтверждается мастер первого запуска, так что
+открытую наружу панель до настройки не захватить. Панель по HTTP без TLS
+лучше держать на 127.0.0.1, а наружу открывать только подписки
+(`EVA_SUB_LISTEN`).
 
 Команды: `eva-manager serve` (по умолчанию), `inbound`, `awg`, `user`,
-`apply`, `token`, `migrate`, `xray-config`, `version` — `eva-manager help`.
+`apply`, `admin passwd`, `token`, `migrate`, `xray-config`, `version` — `eva-manager help`.
 
 ## Лицензия
 

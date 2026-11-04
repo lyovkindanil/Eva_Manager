@@ -72,6 +72,8 @@ func run(ctx context.Context, cmd string, log *slog.Logger) error {
 		return userCmd(ctx, cfg, os.Args[2:])
 	case "awg":
 		return awgCmd(ctx, cfg, os.Args[2:])
+	case "admin":
+		return adminCmd(ctx, cfg, os.Args[2:])
 	case "apply":
 		return applyCmd(ctx, cfg)
 	case "migrate":
@@ -113,7 +115,8 @@ const usage = `Использование: eva-manager <команда>
   awg            AmneziaWG: add | list | del | enable | disable
   user           пользователи: add | list | show | conf | del | enable | disable | reset-traffic
   apply          применить конфиг из базы к работающему ядру и AmneziaWG
-  token          токен администратора для API и веб-интерфейса
+  admin          администратор веб-интерфейса: passwd [--name admin]
+  token          токен для API, CLI и мастера первого запуска
   migrate        применить миграции базы и выйти
   xray-config    напечатать конфиг Xray (из базы)
   version        версия панели

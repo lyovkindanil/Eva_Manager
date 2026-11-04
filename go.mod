@@ -7,6 +7,8 @@ require (
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/vishvananda/netlink v1.3.1
 	github.com/xtls/xray-core v1.260327.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/term v0.47.0
 	google.golang.org/grpc v1.85.0
 	modernc.org/sqlite v1.61.1
 )
@@ -33,7 +35,6 @@ require (
 	github.com/sagernet/sing v0.5.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f // indirect
-	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.61.0 // indirect

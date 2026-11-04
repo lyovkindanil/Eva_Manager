@@ -303,3 +303,23 @@ func scanUser(r scanner) (*User, error) {
 	u.CreatedAt = time.Unix(created, 0).UTC()
 	return &u, nil
 }
+
+// SetUserNote меняет заметку.
+func (s *Store) SetUserNote(ctx context.Context, id, note string) error {
+	_, err := s.db.Exec(ctx, `UPDATE users SET note = ? WHERE id = ?`, note, id)
+	return err
+}
+
+// RotateSubToken — новый токен подписки: старая ссылка перестаёт
+// работать (утекла — перевыпустить).
+func (s *Store) RotateSubToken(ctx context.Context, id string) (string, error) {
+	tok := newSubToken()
+	res, err := s.db.Exec(ctx, `UPDATE users SET sub_token = ? WHERE id = ?`, tok, id)
+	if err != nil {
+		return "", err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return "", ErrNotFound
+	}
+	return tok, nil
+}

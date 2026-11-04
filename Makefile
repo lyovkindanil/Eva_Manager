@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/lyovkindanil/Eva_Manager/internal/buildinfo.Version=$(VERSION)
 
-.PHONY: all web build test xray run docker clean
+.PHONY: all web build test xray run dist docker clean
 
 all: build
 
@@ -26,6 +26,12 @@ xray:
 # Панель с данными в ./bin/data и Xray из bin/xray.
 run: build
 	EVA_DATA_DIR=$(CURDIR)/bin/data EVA_XRAY_BIN=$(CURDIR)/bin/xray/xray ./bin/eva-manager serve
+
+# Архивы выпуска для install.sh → bin/dist (как в .github/workflows/release.yml).
+dist: web
+	scripts/dist.sh $(VERSION) amd64
+	scripts/dist.sh $(VERSION) arm64
+	cd bin/dist && sha256sum *.tar.gz > checksums.txt
 
 docker:
 	docker build --build-arg VERSION=$(VERSION) -t eva-manager:$(VERSION) .
